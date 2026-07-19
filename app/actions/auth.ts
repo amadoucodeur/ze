@@ -3,8 +3,9 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { composeAuthEmail, LOGIN_IDENTIFIER_PATTERN } from "@/lib/identifiers";
 
 export type AuthState = {
   message?: string;
@@ -16,8 +17,10 @@ const credentialsSchema = z.object({
   identifiant: z
     .string()
     .trim()
-    .min(3, "Saisissez l’identifiant fourni par votre organisation.")
-    .max(80, "Cet identifiant est trop long."),
+    .toLowerCase()
+    .min(7, "Saisissez l’identifiant complet fourni par votre organisation.")
+    .max(100, "Cet identifiant est trop long.")
+    .regex(LOGIN_IDENTIFIER_PATTERN, "Utilisez le format utilisateur@organisation, par exemple amadou@trabad."),
   password: z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères."),
 });
 
@@ -46,39 +49,39 @@ export async function loginAction(_state: AuthState, formData: FormData): Promis
 
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
-  const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("id, email, is_active, must_change_password, organisation_id, role")
-    .eq("identifiant", parsed.data.identifiant)
-    .maybeSingle();
-
-  const isOrganisationMember =
-    profile?.is_active &&
-    profile.organisation_id !== null &&
-    profile.role !== "owner";
-
-  // Une adresse factice conserve une réponse uniforme lorsque l’identifiant
-  // n’existe pas, est inactif ou ne possède pas d’email d’authentification.
-  const authenticationEmail =
-    isOrganisationMember && profile.email
-      ? profile.email
-      : "invalid-user@auth.zerecruit.invalid";
-
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({
-    email: authenticationEmail,
+    email: composeAuthEmail(parsed.data.identifiant),
     password: parsed.data.password,
   });
 
-  if (
-    error ||
-    !data.user ||
-    !isOrganisationMember ||
-    data.user.id !== profile.id
-  ) {
-    if (data.user) await supabase.auth.signOut();
+  if (error) {
+    const isSuspended = error.code === "user_banned" || error.message.toLowerCase().includes("banned");
+    return isSuspended
+      ? { message: "Votre accès a été suspendu par votre organisation. Contactez votre administrateur pour le réactiver." }
+      : { message: "Identifiant ou mot de passe incorrect. Vérifiez vos informations." };
+  }
+
+  if (!data.user) {
     return { message: "Identifiant ou mot de passe incorrect. Vérifiez vos informations." };
+  }
+
+  const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("id, identifiant, is_active, must_change_password, organisation_id, role")
+    .eq("id", data.user.id)
+    .maybeSingle();
+  const isOrganisationMember =
+    profile?.organisation_id !== null &&
+    profile?.role !== "owner" &&
+    profile?.identifiant === parsed.data.identifiant;
+
+  if (!profile?.is_active || !isOrganisationMember) {
+    await supabase.auth.signOut();
+    return !profile?.is_active
+      ? { message: "Votre accès a été suspendu par votre organisation. Contactez votre administrateur pour le réactiver." }
+      : { message: "Cet accès n’est plus rattaché à une organisation. Contactez votre administrateur." };
   }
 
   await admin.from("profiles").update({
@@ -107,33 +110,14 @@ export async function requestPasswordResetAction(
   _state: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
-  const parsed = z.string().trim().min(3).max(80).safeParse(formData.get("identifiant"));
+  const parsed = z.string().trim().toLowerCase().min(7).max(100).regex(LOGIN_IDENTIFIER_PATTERN).safeParse(formData.get("identifiant"));
   if (!parsed.success) {
-    return { errors: { identifiant: ["Saisissez votre identifiant ZeRecruit."] } };
+    return { errors: { identifiant: ["Saisissez votre identifiant complet, par exemple amadou@trabad."] } };
   }
 
-  const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("email, is_active, organisation_id, role")
-    .eq("identifiant", parsed.data)
-    .maybeSingle();
-  const isOrganisationMember =
-    profile?.is_active &&
-    profile.organisation_id !== null &&
-    profile.role !== "owner";
-  const supabase = await createClient();
-  const origin = await requestOrigin();
-  await supabase.auth.resetPasswordForEmail(
-    isOrganisationMember && profile.email
-      ? profile.email
-      : "invalid-user@auth.zerecruit.invalid",
-    {
-      redirectTo: `${origin}/auth/callback?next=/nouveau-mot-de-passe`,
-    },
-  );
-
-  return { success: "Si cet identifiant correspond à un compte actif, un lien sécurisé a été envoyé à l’adresse associée." };
+  return {
+    success: "Pour protéger votre organisation, demandez à son propriétaire de réinitialiser votre mot de passe depuis la gestion de l’équipe.",
+  };
 }
 
 export async function updatePasswordAction(

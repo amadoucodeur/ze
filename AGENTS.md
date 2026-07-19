@@ -23,6 +23,12 @@ The activation path is:
 
 Do not put organisation creation and collaborator creation in the wrong order.
 
+The canonical login identifier is `user@organisation`. The owner created through Google receives the permanent identifier `admin@organisation`, while collaborators receive a local user part chosen by the owner, such as `amadou@trabad`. Store and display the complete identifier in `profiles.identifiant`. The organisation identifier becomes immutable after creation because changing it would silently invalidate every team login.
+
+For collaborators, Supabase Auth uses the invisible technical email `user@organisation.zerecruit.local`, derived only from the canonical login identifier. Never display or store this technical address as the collaborator's professional contact email. `profiles.email` remains the contact email. Creating users, changing roles or identifiers, suspending access and resetting another user's password are privileged server operations. A suspended collaborator must receive a clear suspension message at sign-in.
+
+Both `owner` and `admin` roles can manage the organisation's collaborators. Neither may modify the owner. An admin may not change, suspend or reset their own account; those self-service security operations require the owner or another authorised administrator.
+
 ## Non-negotiable UX rules
 
 - One clear primary action per screen.
@@ -37,6 +43,7 @@ Do not put organisation creation and collaborator creation in the wrong order.
 - Every new or changed workflow must work on mobile, keyboard and screen reader paths.
 - Do not style read-only information like an editable field.
 - Explain errors in plain French and always give the user a next action.
+- For AI workflows, optimize time to first useful result separately from background enrichment. Persist and label partial readiness truthfully, and always provide a targeted retry for failed non-destructive background work.
 - Destructive or security-sensitive actions require confirmation or a reversible path.
 - Do not simulate completed backend capabilities in the UI.
 - Preserve multi-tenant isolation and determine organisation membership from the authenticated profile, never from an untrusted client value.

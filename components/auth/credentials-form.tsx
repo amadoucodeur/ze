@@ -40,10 +40,10 @@ export function UnifiedAuthForm() {
       <div className="auth-divider"><span>ou</span></div>
 
       <section className="auth-choice-card auth-team-choice" aria-labelledby="team-access-title">
-        <div className="auth-choice-heading"><span><UserRound size={18} /></span><div><small>Pour les collaborateurs</small><h3 id="team-access-title">Mon organisation m’a donné un accès</h3><p>Utilisez l’identifiant et le mot de passe transmis par votre responsable.</p></div></div>
+        <div className="auth-choice-heading"><span><UserRound size={18} /></span><div><small>Pour les collaborateurs</small><h3 id="team-access-title">Mon organisation m’a donné un accès</h3><p>Votre identifiant contient votre nom d’accès et celui de votre organisation.</p></div></div>
         <form action={formAction} className="auth-form">
         <div className="field-label">
-          <label htmlFor="identifiant">Identifiant</label>
+          <label htmlFor="identifiant">Identifiant complet</label>
           <div className="input-wrap">
             <UserRound size={18} aria-hidden="true" />
             <input
@@ -52,10 +52,11 @@ export function UnifiedAuthForm() {
               autoComplete="username"
               autoCapitalize="none"
               spellCheck={false}
-              placeholder="Votre identifiant ZeRecruit"
+              placeholder="amadou@trabad"
               required
             />
           </div>
+          <small className="field-hint">Format : utilisateur@organisation</small>
           {state.errors?.identifiant?.map((error) => <small className="field-error" key={error}>{error}</small>)}
         </div>
         <div className="field-label">

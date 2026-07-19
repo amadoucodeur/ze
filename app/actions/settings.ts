@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
+import { composeLoginIdentifier } from "@/lib/identifiers";
 
 export type SettingsState = {
   message?: string;
@@ -131,7 +132,11 @@ export async function createOrganisationAction(
 
   const { data: linkedProfile, error: linkError } = await admin
     .from("profiles")
-    .update({ organisation_id: organisation.id, updated_at: new Date().toISOString() })
+    .update({
+      organisation_id: organisation.id,
+      identifiant: composeLoginIdentifier("admin", parsed.data.identifiant),
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", profile.id)
     .is("organisation_id", null)
     .select("id")
@@ -157,7 +162,7 @@ export async function updateOrganisationAction(
 
   const parsed = organisationSchema.safeParse({
     name: formData.get("name"),
-    identifiant: formData.get("identifiant"),
+    identifiant: profile.organisation?.identifiant ?? "",
     email: formData.get("email"),
     phone: formData.get("phone"),
     websiteUrl: formData.get("websiteUrl"),

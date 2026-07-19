@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 
-export default function DashboardError({ error, unstable_retry }: { error: Error & { digest?: string }; unstable_retry: () => void }) {
-  useEffect(() => { console.error(error); }, [error]);
-
+export default function DashboardError({ unstable_retry }: { error: Error & { digest?: string }; unstable_retry: () => void }) {
   return (
     <main className="simple-state-page">
       <BrandLogo />
