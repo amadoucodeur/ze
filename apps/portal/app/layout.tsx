@@ -20,6 +20,29 @@ export const metadata: Metadata = {
   title: "ZeSuite — Tous vos outils, un seul compte",
   description:
     "Découvrez ZeRecruit, ZeControl et les futurs produits ZeSuite. Une organisation, un compte et des outils spécialisés.",
+  openGraph: {
+    type: "website",
+    locale: "fr_FR",
+    siteName: "ZeSuite",
+    title: "ZeSuite — Tous vos outils, un seul compte",
+    description:
+      "Une organisation, un compte et des produits spécialisés pour vos équipes.",
+    images: [
+      {
+        url: "/og.png",
+        width: 1727,
+        height: 910,
+        alt: "ZeSuite — Tous vos outils, un seul compte",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ZeSuite — Tous vos outils, un seul compte",
+    description:
+      "Une organisation, un compte et des produits spécialisés pour vos équipes.",
+    images: ["/og.png"],
+  },
 };
 
 export default function RootLayout({
