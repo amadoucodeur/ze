@@ -1,6 +1,15 @@
 {
   "name": "@ze/ui-foundations",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "exports": {
+    "./brands": "./src/brands.tsx",
+    "./brands.css": "./src/brands.css"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "devDependencies": {
+    "@types/react": "^19"
+  }
 }
-

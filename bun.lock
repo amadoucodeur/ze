@@ -9,6 +9,8 @@
       "name": "@ze/portal",
       "version": "0.1.0",
       "dependencies": {
+        "@ze/ui-foundations": "workspace:*",
+        "lucide-react": "^1.25.0",
         "next": "16.2.10",
         "react": "19.2.4",
         "react-dom": "19.2.4",
@@ -28,6 +30,8 @@
       "name": "zecontrol",
       "version": "0.1.0",
       "dependencies": {
+        "@ze/ui-foundations": "workspace:*",
+        "lucide-react": "^1.25.0",
         "next": "16.2.10",
         "react": "19.2.4",
         "react-dom": "19.2.4",
@@ -80,6 +84,12 @@
     "packages/ui-foundations": {
       "name": "@ze/ui-foundations",
       "version": "0.1.0",
+      "devDependencies": {
+        "@types/react": "^19",
+      },
+      "peerDependencies": {
+        "react": ">=19",
+      },
     },
   },
   "trustedDependencies": [

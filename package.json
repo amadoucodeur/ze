@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:portal": "bun --cwd apps/portal dev",
-    "dev:zerecruit": "bun --cwd apps/zerecruit dev",
-    "dev:zecontrol": "bun --cwd apps/zecontrol dev",
+    "dev:portal": "bun --cwd apps/portal dev --port 3002",
+    "dev:zerecruit": "bun --cwd apps/zerecruit dev --port 3000",
+    "dev:zecontrol": "bun --cwd apps/zecontrol dev --port 3001",
     "build:portal": "bun --cwd apps/portal build",
     "build:zerecruit": "bun --cwd apps/zerecruit build",
     "build:zecontrol": "bun --cwd apps/zecontrol build",
@@ -21,4 +21,3 @@
     "build": "bun run build:portal && bun run build:zerecruit && bun run build:zecontrol"
   }
 }
-
