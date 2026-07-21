@@ -1,0 +1,24 @@
+{
+  "name": "ze-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.3.3",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:portal": "bun --cwd apps/portal dev",
+    "dev:zerecruit": "bun --cwd apps/zerecruit dev",
+    "dev:zecontrol": "bun --cwd apps/zecontrol dev",
+    "build:portal": "bun --cwd apps/portal build",
+    "build:zerecruit": "bun --cwd apps/zerecruit build",
+    "build:zecontrol": "bun --cwd apps/zecontrol build",
+    "lint:portal": "bun --cwd apps/portal lint",
+    "lint:zerecruit": "bun --cwd apps/zerecruit lint",
+    "lint:zecontrol": "bun --cwd apps/zecontrol lint",
+    "lint": "bun run lint:portal && bun run lint:zerecruit && bun run lint:zecontrol",
+    "build": "bun run build:portal && bun run build:zerecruit && bun run build:zecontrol"
+  }
+}
+
