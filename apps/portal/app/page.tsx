@@ -65,10 +65,7 @@ export default function Home() {
           <div className="visual-orbit visual-orbit-one" aria-hidden="true" />
           <div className="visual-orbit visual-orbit-two" aria-hidden="true" />
           <div className="suite-core-card">
-            <ZeSuiteLogo compact inverse />
-            <span>Votre espace</span>
-            <strong>1 organisation</strong>
-            <small>2 produits actifs</small>
+            <ZeSuiteLogo compact className="hero-monogram-logo" />
           </div>
           <div className="mini-product mini-recruit">
             <ZeRecruitLogo compact />

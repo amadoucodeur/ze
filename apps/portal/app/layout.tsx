@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Sans, Manrope } from "next/font/google";
+import { Bodoni_Moda, DM_Sans, Manrope } from "next/font/google";
 import "@ze/ui-foundations/brands.css";
 import "./globals.css";
 
@@ -11,6 +11,12 @@ const displayFont = Manrope({
 const bodyFont = DM_Sans({
   variable: "--font-body",
   subsets: ["latin"],
+});
+
+const editorialFont = Bodoni_Moda({
+  variable: "--font-editorial",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -51,7 +57,7 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
-      className={`${displayFont.variable} ${bodyFont.variable}`}
+      className={`${displayFont.variable} ${bodyFont.variable} ${editorialFont.variable}`}
       data-scroll-behavior="smooth"
     >
       <body>{children}</body>

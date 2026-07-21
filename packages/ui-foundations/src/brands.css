@@ -18,27 +18,24 @@
 .ze-brand-compact { gap: 0; }
 
 .ze-suite-mark {
-  width: 39px;
-  height: 39px;
+  width: 43px;
+  height: 38px;
   position: relative;
   display: block;
   flex: 0 0 auto;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 11px;
-  color: #fff;
-  background: #17181d;
-  box-shadow: 0 8px 19px rgba(23, 24, 29, .18), inset 0 0 0 1px rgba(255, 255, 255, .04);
+  color: var(--ze-logo-ink);
 }
-.ze-suite-mark::after {
+.ze-suite-mark::before {
   content: "";
   position: absolute;
-  width: 23px;
-  height: 23px;
-  right: -13px;
-  top: -13px;
-  border: 5px solid #735fff;
+  z-index: 0;
+  width: 35px;
+  height: 20px;
+  left: 8px;
+  top: 8px;
+  border: 1px solid color-mix(in srgb, var(--ze-logo-ink) 24%, transparent);
   border-radius: 50%;
+  transform: rotate(-18deg);
 }
 .ze-suite-monogram-z,
 .ze-suite-monogram-s {
@@ -50,42 +47,43 @@
   line-height: 1;
 }
 .ze-suite-monogram-z {
-  left: 6px;
-  top: 6px;
-  color: #fff;
-  font-size: 23px;
-  letter-spacing: -3px;
+  left: 0;
+  top: 0;
+  color: var(--ze-logo-ink);
+  font-size: 35px;
+  letter-spacing: -5px;
+  transform: scaleX(.78);
+  transform-origin: left center;
 }
 .ze-suite-monogram-s {
-  right: 5px;
-  bottom: 5px;
-  color: #8a7cff;
-  font-size: 20px;
-  letter-spacing: -2px;
+  right: 0;
+  bottom: -1px;
+  color: #735fff;
+  font-size: 32px;
+  letter-spacing: -4px;
+  transform: scaleX(.82);
+  transform-origin: right center;
 }
 .ze-suite-monogram-link {
-  width: 13px;
-  height: 2px;
+  width: 4px;
+  height: 4px;
   position: absolute;
-  left: 13px;
-  top: 20px;
+  right: 0;
+  top: 6px;
   z-index: 3;
-  border-radius: 99px;
-  background: #f7f3ea;
-  transform: rotate(-42deg);
-  transform-origin: center;
-}
-.ze-suite-brand .ze-brand-word { gap: .02em; }
-.ze-suite-brand .ze-brand-word b { color: inherit; }
-.ze-suite-brand .ze-brand-word::after {
-  content: "";
-  width: 5px;
-  height: 5px;
-  align-self: flex-start;
-  margin: 1px 0 0 3px;
-  border-radius: 2px;
+  border-radius: 50%;
   background: #735fff;
 }
+.ze-suite-brand { gap: 10px; }
+.ze-suite-brand .ze-brand-word {
+  gap: 0;
+  font-family: var(--font-editorial), "Bodoni 72", Didot, "Times New Roman", serif;
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -1.8px;
+}
+.ze-suite-brand .ze-brand-word b,
+.ze-suite-brand .ze-brand-word span { color: inherit; font-weight: 600; }
 
 .ze-control-mark {
   width: 38px;
@@ -159,12 +157,13 @@
 .ze-recruit-brand .ze-brand-word b { color: #18a875; }
 .ze-recruit-brand.ze-brand-inverse .ze-brand-word b { color: #dcff64; }
 
-.ze-brand-compact .ze-suite-mark,
+.ze-brand-compact .ze-suite-mark { width: 35px; height: 30px; }
 .ze-brand-compact .ze-control-mark,
 .ze-brand-compact .ze-recruit-mark { width: 30px; height: 30px; }
-.ze-brand-compact .ze-suite-monogram-z { left: 4px; top: 4px; font-size: 18px; }
-.ze-brand-compact .ze-suite-monogram-s { right: 4px; bottom: 4px; font-size: 15px; }
-.ze-brand-compact .ze-suite-monogram-link { width: 10px; left: 10px; top: 15px; }
+.ze-brand-compact .ze-suite-mark::before { width: 28px; height: 17px; left: 6px; top: 6px; }
+.ze-brand-compact .ze-suite-monogram-z { left: 0; top: 0; font-size: 28px; }
+.ze-brand-compact .ze-suite-monogram-s { right: 0; bottom: -1px; font-size: 25px; }
+.ze-brand-compact .ze-suite-monogram-link { width: 4px; height: 4px; right: 0; top: 4px; }
 .ze-brand-compact .ze-control-ring { width: 20px; height: 20px; left: 5px; top: 5px; }
 .ze-brand-compact .ze-control-hand { left: 15px; top: 15px; }
 .ze-brand-compact .ze-recruit-layer-back { inset: 7px 0 1px 9px; }

@@ -79,11 +79,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .hero h1 {
   max-width: 710px;
   margin: 0;
-  font-family: var(--font-display), sans-serif;
+  font-family: var(--font-editorial), "Bodoni 72", Didot, serif;
   font-size: clamp(50px, 6.8vw, 88px);
-  font-weight: 780;
-  letter-spacing: -.065em;
-  line-height: .98;
+  font-weight: 600;
+  letter-spacing: -.055em;
+  line-height: .94;
 }
 .hero h1 em { color: var(--violet); font-style: normal; }
 .hero-summary {
@@ -120,42 +120,41 @@ button, a { -webkit-tap-highlight-color: transparent; }
   background: rgba(255,255,255,.56);
   box-shadow: 0 30px 80px rgba(23,24,29,.07), inset 0 0 0 1px rgba(255,255,255,.82);
 }
-.visual-orbit { position: absolute; border: 1px solid rgba(115,95,255,.22); border-radius: 50%; }
+.visual-orbit { position: absolute; border: 1px solid rgba(23,24,29,.20); border-radius: 50%; }
+.visual-orbit::before,
+.visual-orbit::after { content: ""; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--violet); box-shadow: 0 0 0 4px rgba(115,95,255,.08); }
+.visual-orbit::before { left: 12%; top: 15%; }
+.visual-orbit::after { right: 3%; bottom: 26%; }
 .visual-orbit-one { inset: 5px 55px 22px; transform: rotate(16deg); }
-.visual-orbit-two { inset: 58px 1px 64px; transform: rotate(-15deg); border-color: rgba(23,24,29,.12); }
+.visual-orbit-two { inset: 58px 1px 64px; transform: rotate(-15deg); border-style: dashed; border-color: rgba(23,24,29,.18); }
 .suite-core-card {
   position: absolute;
   z-index: 3;
   left: 50%;
   top: 50%;
-  display: flex;
-  width: 190px;
-  min-height: 210px;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 24px;
-  overflow: hidden;
-  border-radius: 25px;
-  color: white;
-  background: #17181d;
-  box-shadow: 0 28px 55px rgba(23,24,29,.25);
+  display: grid;
+  width: 250px;
+  min-height: 230px;
+  place-items: center;
   transform: translate(-50%, -50%) rotate(-2deg);
 }
 .suite-core-card::before {
   content: "";
   position: absolute;
-  width: 150px;
-  height: 150px;
-  right: -63px;
-  top: -60px;
-  border: 28px solid rgba(115,95,255,.22);
+  width: 195px;
+  height: 195px;
+  right: -58px;
+  top: -35px;
+  border: 1px solid rgba(115,95,255,.22);
   border-radius: 50%;
-  transform: rotate(24deg);
+  box-shadow: 0 25px 70px rgba(115,95,255,.12);
 }
-.suite-core-card > .ze-brand { position: absolute; left: 22px; top: 22px; }
-.suite-core-card > span { margin-bottom: 7px; color: rgba(255,255,255,.66); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.suite-core-card strong { font-family: var(--font-display); font-size: 24px; letter-spacing: -.04em; }
-.suite-core-card small { margin-top: 4px; color: rgba(255,255,255,.72); }
+.hero-monogram-logo { position: relative; z-index: 2; }
+.hero-monogram-logo .ze-suite-mark { width: 245px; height: 220px; }
+.hero-monogram-logo .ze-suite-mark::before { width: 210px; height: 112px; left: 25px; top: 44px; border-color: rgba(23,24,29,.24); }
+.hero-monogram-logo .ze-suite-monogram-z { left: 0; top: 4px; font-size: 205px; letter-spacing: -28px; text-shadow: 0 15px 28px rgba(23,24,29,.12); }
+.hero-monogram-logo .ze-suite-monogram-s { right: 0; bottom: 1px; font-size: 188px; letter-spacing: -24px; text-shadow: 0 14px 28px rgba(115,95,255,.22); }
+.hero-monogram-logo .ze-suite-monogram-link { width: 11px; height: 11px; right: 3px; top: 32px; box-shadow: 0 0 0 6px rgba(115,95,255,.09); }
 .mini-product {
   position: absolute;
   z-index: 4;
@@ -185,10 +184,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .products-section .section-kicker { color: #988cff; }
 .section-heading h2, .how-intro h2, .closing-section h2 {
   margin: 0;
-  font-family: var(--font-display), sans-serif;
+  font-family: var(--font-editorial), "Bodoni 72", Didot, serif;
   font-size: clamp(38px, 5vw, 62px);
   line-height: 1.04;
-  letter-spacing: -.055em;
+  font-weight: 600;
+  letter-spacing: -.045em;
 }
 .section-heading > p { margin: 0; color: #aeb6c6; font-size: 17px; line-height: 1.65; }
 .product-grid { display: grid; grid-template-columns: 1fr 1fr .56fr; gap: 18px; }
