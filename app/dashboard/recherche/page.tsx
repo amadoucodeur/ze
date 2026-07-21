@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Check, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles } from "lucide-react";
 import { TalentSearchChat } from "@/components/search/talent-search-chat";
+import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 
 export const metadata: Metadata = { title: "Rechercher dans le vivier" };
@@ -32,19 +33,16 @@ export default async function TalentSearchPage({ searchParams }: { searchParams:
   if (!profile) redirect("/connexion");
   if (!profile.organisation_id) redirect("/dashboard");
   const initialQuery = legacyQuery(await searchParams);
+  const plan = getPlan(profile.organisation?.plan);
+  const collectionsEnabled = Boolean(profile.organisation) && hasActivePlanAccess(profile.organisation!) && plan.collectionsEnabled;
 
   return (
     <div className="talent-chat-page talent-search-redesign">
       <header className="dashboard-content-header">
-        <div><span>Recherche intelligente</span><h1>Décrivez la mission. ZeRecruit trouve les bons profils.</h1><p>Écrivez naturellement votre besoin ou précisez vos critères. Chaque résultat est classé et expliqué.</p></div>
-        <Link className="button button-ghost" href="/dashboard/talents"><ArrowLeft size={17} /> Tous les profils</Link>
+        <div><span><Sparkles size={15} /> Assistant IA</span><h1>Quel profil cherchez-vous&nbsp;?</h1><p>Expliquez le besoin comme à un collègue. ZeRecruit retrouve et explique les profils les plus pertinents.</p></div>
+        <Link className="button button-ghost" href="/dashboard/talents"><ArrowLeft size={17} /> Retour au vivier</Link>
       </header>
-      <div className="talent-search-how" aria-label="Fonctionnement de la recherche">
-        <span><Search size={17} /><b>1</b> Décrivez le besoin</span>
-        <span><Sparkles size={17} /><b>2</b> Vérifiez les critères</span>
-        <span><Check size={17} /><b>3</b> Comparez les profils</span>
-      </div>
-      <TalentSearchChat canManageCollections={profile.role !== "viewer"} initialQuery={initialQuery} />
+      <TalentSearchChat key={initialQuery || "new-search"} canManageCollections={profile.role !== "viewer" && collectionsEnabled} initialQuery={initialQuery} />
     </div>
   );
 }

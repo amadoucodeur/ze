@@ -2,6 +2,7 @@ import { generateInterviewGuide } from "@/lib/offers/mammouth";
 import { interviewGuideRequestSchema } from "@/lib/offers/schema";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
+import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
 import { ZodError } from "zod";
 
 export const maxDuration = 120;
@@ -18,6 +19,8 @@ export async function POST(request: Request) {
   const profile = await getCurrentProfile();
   if (!profile) return Response.json({ message: "Votre session a expiré. Reconnectez-vous." }, { status: 401 });
   if (!profile.organisation_id || profile.role === "viewer") return Response.json({ message: "Votre accès ne permet pas de préparer un entretien." }, { status: 403 });
+  if (!profile.organisation || !hasActivePlanAccess(profile.organisation)) return Response.json({ message: "Renouvelez le plan de l’organisation pour préparer un nouveau guide d’entretien." }, { status: 402 });
+  if (!getPlan(profile.organisation.plan).interviewGuidesEnabled) return Response.json({ message: "Les guides d’entretien sont disponibles avec le plan Essentiel ou Équipe." }, { status: 402 });
   const parsed = interviewGuideRequestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ message: "La candidature n’est pas valide." }, { status: 400 });
 

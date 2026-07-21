@@ -8,6 +8,8 @@ import {
 } from "@/lib/search/schema";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
+import { hasActivePlanAccess } from "@/lib/billing/plans";
+import { releaseUsageReservation, reserveOfferMatching } from "@/lib/billing/entitlements";
 import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
@@ -26,7 +28,6 @@ type CandidateRow = {
   summary: string | null;
   statut: string;
   performance_score: number | null;
-  salary_value: Record<string, unknown> | null;
   industries: string[] | null;
   skills: Array<{ name: string; expertise: string | null; score: number | null; nb_month_of_experiance: number | null }>;
   languages: Array<{ name: string; level: string | null }>;
@@ -69,23 +70,6 @@ function includesTerm(value: string, term: string) {
   const normalizedValue = normalize(value);
   const normalizedTerm = normalize(term);
   return normalizedValue.includes(normalizedTerm) || normalizedTerm.includes(normalizedValue);
-}
-
-function salaryMatches(candidateValue: Record<string, unknown> | null, intent: TalentSearchIntent) {
-  if (intent.salary.maximum === null) return null;
-  if (!candidateValue) return false;
-  const candidateFrom = Number(candidateValue.from);
-  const candidatePeriod = candidateValue.period === "year" ? "year" : "month";
-  const candidateCurrency = normalize(candidateValue.currency);
-  if (!Number.isFinite(candidateFrom)) return false;
-  if (intent.salary.currency && candidateCurrency !== normalize(intent.salary.currency)) return false;
-  const targetPeriod = intent.salary.period || "month";
-  const normalizedCandidate = candidatePeriod === targetPeriod
-    ? candidateFrom
-    : candidatePeriod === "year"
-      ? candidateFrom / 12
-      : candidateFrom * 12;
-  return normalizedCandidate <= intent.salary.maximum;
 }
 
 function offerSearchIntent(offer: OfferSearchRow): TalentSearchIntent {
@@ -169,8 +153,7 @@ function rankCandidate(
   if (intent.minProfileScore !== null) {
     addCriterion("Profil suffisamment documenté", (candidate.performance_score || 0) >= intent.minProfileScore, 1, "Profil moins documenté que souhaité");
   }
-  const withinSalary = salaryMatches(candidate.salary_value, intent);
-  if (withinSalary !== null) addCriterion("Fourchette compatible", withinSalary, 2, "Fourchette salariale à vérifier");
+  if (intent.salary.maximum !== null) gaps.push("Prétentions salariales à demander directement au candidat");
 
   const semanticScore = Math.max(0, Math.min(100, semanticSimilarity * 100));
   const criteriaScore = possible > 0 ? earned / possible * 100 : semanticScore;
@@ -206,7 +189,6 @@ function rankCandidate(
     availability: candidate.statut,
     relevanceScore,
     profileScore: candidate.performance_score,
-    salaryValue: candidate.salary_value || {},
     skills: candidate.skills.map((skill) => ({ name: skill.name, expertise: skill.expertise, score: skill.score })).slice(0, 12),
     languages: candidate.languages,
     matches: [...new Set(matches)].slice(0, 6),
@@ -239,6 +221,7 @@ export async function POST(request: Request) {
   if (!profile.organisation_id || profile.organisation?.status !== "active") {
     return Response.json({ message: "Une organisation active est nécessaire pour rechercher des talents." }, { status: 403 });
   }
+  if (!profile.organisation || !hasActivePlanAccess(profile.organisation)) return Response.json({ message: "La recherche intelligente est suspendue. Le propriétaire peut renouveler le plan depuis la facturation." }, { status: 402 });
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 30_000) return Response.json({ message: "La conversation est trop longue. Démarrez une nouvelle recherche." }, { status: 413 });
   const body = await request.json().catch(() => null);
@@ -248,6 +231,8 @@ export async function POST(request: Request) {
   }
 
   let matchingOffer: OfferSearchRow | null = null;
+  let usageEventId: string | null = null;
+  let matchingRemaining: number | null = null;
   if (parsedRequest.data.offerId) {
     const admin = createAdminClient();
     const { data } = await admin
@@ -258,6 +243,12 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (!data) return Response.json({ message: "Cette offre n’est plus disponible pour le matching." }, { status: 404 });
     matchingOffer = data as OfferSearchRow;
+    const reservation = await reserveOfferMatching(profile.organisation, parsedRequest.data.offerId);
+    if (!reservation.allowed) {
+      return Response.json({ message: "Les 3 matchings inclus dans le plan Free ont été utilisés. Passez à Essentiel pour continuer sans limite." }, { status: 402 });
+    }
+    usageEventId = reservation.eventId;
+    matchingRemaining = reservation.remaining;
   }
 
   const encoder = new TextEncoder();
@@ -276,6 +267,7 @@ export async function POST(request: Request) {
       const heartbeat = setInterval(() => emit({ type: "heartbeat", elapsedSeconds: Math.floor((Date.now() - startedAt) / 1_000) }), 5_000);
 
       void (async () => {
+        let matchingCompleted = false;
         try {
           emit({ type: "stage", stage: "understanding", message: "Compréhension de votre besoin…" });
           const intent = matchingOffer
@@ -315,7 +307,7 @@ export async function POST(request: Request) {
             const admin = createAdminClient();
             let candidateQuery = admin
               .from("candidats")
-              .select("id, fullname, poste_type, localisation, summary, statut, performance_score, salary_value, industries, skills(name, expertise, score, nb_month_of_experiance), languages(name, level)")
+              .select("id, fullname, poste_type, localisation, summary, statut, performance_score, industries, skills(name, expertise, score, nb_month_of_experiance), languages(name, level)")
               .eq("organisation_id", profile.organisation_id!)
               .is("archived_at", null);
             if (candidateIds.length) candidateQuery = candidateQuery.in("id", candidateIds);
@@ -331,10 +323,12 @@ export async function POST(request: Request) {
             return rankCandidate(candidate, maximum * 0.75 + average * 0.25, vector.chunks, intent);
           }).sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, 12);
 
+          matchingCompleted = true;
           emit({ type: "complete", understoodRequest: intent.understoodRequest, criteria: intent, results, durationMs: Date.now() - startedAt });
         } catch (error) {
           emit({ type: "error", message: publicError(error) });
         } finally {
+          if (!matchingCompleted) await releaseUsageReservation(usageEventId);
           clearInterval(heartbeat);
           if (open) controller.close();
           open = false;
@@ -348,6 +342,7 @@ export async function POST(request: Request) {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
+      ...(matchingRemaining === null ? {} : { "X-ZeRecruit-Matching-Remaining": String(matchingRemaining) }),
     },
   });
 }

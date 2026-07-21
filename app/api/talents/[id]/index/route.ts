@@ -3,6 +3,7 @@ import { finalizeCandidateIndexing, markCandidateIndexingFailed } from "@/lib/cv
 import type { CvEmbeddingChunk } from "@/lib/cv/schema";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
+import { hasActivePlanAccess } from "@/lib/billing/plans";
 
 export const maxDuration = 180;
 
@@ -24,6 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!profile.organisation_id || profile.role === "viewer" || profile.organisation?.status !== "active") {
     return Response.json({ message: "Votre rôle ne permet pas de relancer cette préparation." }, { status: 403 });
   }
+  if (!profile.organisation || !hasActivePlanAccess(profile.organisation)) return Response.json({ message: "Renouvelez le plan de l’organisation avant de relancer cette préparation." }, { status: 402 });
 
   const { id } = await params;
   const admin = createAdminClient();

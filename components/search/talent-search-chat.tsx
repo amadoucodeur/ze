@@ -19,10 +19,10 @@ import {
   Send,
   SlidersHorizontal,
   Sparkles,
-  WalletCards,
   X,
 } from "lucide-react";
 import { BulkCollectionPicker } from "@/components/collections/bulk-collection-picker";
+import { CollectionPicker } from "@/components/collections/collection-picker";
 import { trackProductEvent } from "@/lib/analytics/client";
 import type {
   TalentSearchIntent,
@@ -48,7 +48,7 @@ type CriteriaDraft = {
   currency: string;
 };
 
-const SEARCH_SESSION_KEY = "zerecruit:talent-search:v2";
+const SEARCH_SESSION_KEY = "zerecruit:talent-search:v3";
 
 const emptyDraft: CriteriaDraft = {
   roles: "",
@@ -131,15 +131,6 @@ function queryFromDraft(draft: CriteriaDraft) {
   return parts.join(". ");
 }
 
-function formatSalary(value: Record<string, unknown>) {
-  const from = Number(value.from);
-  const to = Number(value.to);
-  const currency = typeof value.currency === "string" ? value.currency : "";
-  if (!Number.isFinite(from) || !Number.isFinite(to) || !currency) return null;
-  const formatter = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-  return `${formatter.format(from)}–${formatter.format(to)} ${currency}/${value.period === "year" ? "an" : "mois"}`;
-}
-
 export function TalentSearchChat({
   canManageCollections,
   initialQuery = "",
@@ -148,6 +139,8 @@ export function TalentSearchChat({
   initialQuery?: string;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const initialQueryHandledRef = useRef(false);
   const [input, setInput] = useState(initialQuery);
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -168,29 +161,38 @@ export function TalentSearchChat({
 
   useEffect(() => {
     let active = true;
+    let initialSearchTimer: number | undefined;
     const restoreTimer = window.setTimeout(() => {
       if (!active) return;
-      try {
-        const raw = sessionStorage.getItem(SEARCH_SESSION_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw) as {
-            messages?: ChatEntry[];
-            understoodRequest?: string;
-            intent?: TalentSearchIntent;
-            results?: TalentSearchResult[];
-          };
-          if (Array.isArray(saved.messages)) setMessages(saved.messages.slice(-8));
-          if (saved.understoodRequest) setUnderstoodRequest(saved.understoodRequest);
-          if (saved.intent) {
-            setIntent(saved.intent);
-            setDraft(criteriaDraft(saved.intent));
-          }
-          if (Array.isArray(saved.results)) setResults(saved.results);
-        }
-      } catch {
+      const requestedQuery = initialQuery.trim();
+      if (requestedQuery.length >= 3 && !initialQueryHandledRef.current) {
+        initialQueryHandledRef.current = true;
         sessionStorage.removeItem(SEARCH_SESSION_KEY);
+        setSessionReady(true);
+        initialSearchTimer = window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+      } else {
+        try {
+          const raw = sessionStorage.getItem(SEARCH_SESSION_KEY);
+          if (raw) {
+            const saved = JSON.parse(raw) as {
+              messages?: ChatEntry[];
+              understoodRequest?: string;
+              intent?: TalentSearchIntent;
+              results?: TalentSearchResult[];
+            };
+            if (Array.isArray(saved.messages)) setMessages(saved.messages.slice(-8));
+            if (saved.understoodRequest) setUnderstoodRequest(saved.understoodRequest);
+            if (saved.intent) {
+              setIntent(saved.intent);
+              setDraft(criteriaDraft(saved.intent));
+            }
+            if (Array.isArray(saved.results)) setResults(saved.results);
+          }
+        } catch {
+          sessionStorage.removeItem(SEARCH_SESSION_KEY);
+        }
+        setSessionReady(true);
       }
-      setSessionReady(true);
     }, 0);
 
     const supabase = createClient();
@@ -203,8 +205,9 @@ export function TalentSearchChat({
     return () => {
       active = false;
       window.clearTimeout(restoreTimer);
+      if (initialSearchTimer !== undefined) window.clearTimeout(initialSearchTimer);
     };
-  }, []);
+  }, [initialQuery]);
 
   useEffect(() => {
     if (!sessionReady) return;
@@ -358,8 +361,9 @@ export function TalentSearchChat({
       <span className="sr-only" aria-live="polite">{announcement}</span>
       <section className="talent-chat-panel" aria-label="Recherche de profils">
         <div className="talent-chat-heading">
-          <span><Bot size={22} /></span>
-          <div><strong>Votre besoin de recrutement</strong><small>Un métier, des compétences et le contexte suffisent pour commencer.</small></div>
+          <span className="talent-ai-avatar"><Sparkles size={22} /><i /><i /></span>
+          <div><strong>ZeRecruit IA</strong><small>Je cherche uniquement dans le vivier de votre organisation.</small></div>
+          <span className={`talent-ai-status${submitting ? " is-thinking" : ""}`}><i />{submitting ? "Réflexion…" : "Prêt"}</span>
           {messages.length > 0 && <button type="button" onClick={resetSearch}><RotateCcw size={16} /> Nouvelle recherche</button>}
         </div>
 
@@ -367,8 +371,8 @@ export function TalentSearchChat({
           {messages.length === 0 ? (
             <div className="talent-chat-welcome">
               <span><Sparkles size={27} /></span>
-              <h2>Commencez avec vos propres mots</h2>
-              <p>ZeRecruit comprend la mission, distingue l’indispensable du souhaité et retrouve les preuves utiles dans votre vivier.</p>
+              <h2>Parlez-moi du profil idéal.</h2>
+              <p>Un poste, une mission ou quelques contraintes suffisent. Je vous demanderai une précision seulement si elle est vraiment nécessaire.</p>
               <div>{examples.map((example) => <button type="button" disabled={submitting} onClick={() => void searchTalents(example, true)} key={example}>{example}<ArrowRight size={15} /></button>)}</div>
               {recentSearches.length > 0 && <div className="talent-recent-searches"><strong><Clock3 size={15} /> Recherches récentes</strong>{recentSearches.map((recent) => <button type="button" onClick={() => void searchTalents(recent.understood_request, true)} key={recent.id}><span>{recent.understood_request}</span><small>{recent.result_count} résultat{recent.result_count > 1 ? "s" : ""}</small></button>)}</div>}
             </div>
@@ -388,10 +392,10 @@ export function TalentSearchChat({
           )}
         </div>
 
-        <form className="talent-chat-composer" onSubmit={handleSubmit}>
+        <form className="talent-chat-composer" ref={formRef} onSubmit={handleSubmit}>
           <label><span className="sr-only">Votre demande</span><textarea ref={inputRef} value={input} rows={2} maxLength={2_000} disabled={submitting} placeholder={awaitingClarification ? "Précisez votre besoin…" : "Ex. Un développeur React disponible à Abidjan…"} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (input.trim().length >= 3) void searchTalents(input, false); } }} /></label>
-          <button className="button button-primary" type="submit" disabled={submitting || input.trim().length < 3}>{submitting ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />} <span>{submitting ? "Recherche…" : "Rechercher"}</span></button>
-          <small>Entrée pour rechercher · Maj + Entrée pour une nouvelle ligne</small>
+          <button className="button button-primary" type="submit" disabled={submitting || input.trim().length < 3}>{submitting ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />} <span>{submitting ? "Je cherche…" : "Trouver des profils"}</span></button>
+          <small><Sparkles size={13} /> Entrée pour envoyer · aucun critère personnel n’influence le classement</small>
         </form>
 
         <details className="talent-criteria-editor">
@@ -424,35 +428,33 @@ export function TalentSearchChat({
         {intent && results !== null && (
           <>
             <div className="talent-chat-results-summary">
-              <div><span><Sparkles size={17} /> Demande comprise</span><h2>{understoodRequest}</h2><p>{results.length ? `${results.length} profil${results.length > 1 ? "s sont" : " est"} classé${results.length > 1 ? "s" : ""} par pertinence.` : "Aucun profil ne présente encore assez d’éléments correspondants."}</p></div>
-              {(intent.roles.length > 0 || intent.mustHaveSkills.length > 0 || intent.niceToHaveSkills.length > 0) && <div className="talent-chat-criteria-groups">
+              <div className="talent-ai-answer-heading"><span><Sparkles size={18} /></span><div><small>Voici ce que j’ai compris</small><h2>{understoodRequest}</h2><p>{results.length ? `${results.length} profil${results.length > 1 ? "s" : ""} à examiner, classé${results.length > 1 ? "s" : ""} par pertinence.` : "Je n’ai pas trouvé de correspondance assez solide."}</p></div><button type="button" onClick={() => inputRef.current?.focus()}>Ajuster</button></div>
+              {(intent.roles.length > 0 || intent.mustHaveSkills.length > 0 || intent.niceToHaveSkills.length > 0) && <details className="talent-ai-criteria-review"><summary><SlidersHorizontal size={16} /> Voir les critères retenus</summary><div className="talent-chat-criteria-groups">
                 {intent.roles.length > 0 && <div><strong>Mission</strong><span>{intent.roles.join(", ")}</span></div>}
                 {intent.mustHaveSkills.length > 0 && <div className="is-required"><strong>Indispensable</strong><span>{intent.mustHaveSkills.join(", ")}</span></div>}
                 {intent.niceToHaveSkills.length > 0 && <div><strong>Souhaité</strong><span>{intent.niceToHaveSkills.join(", ")}</span></div>}
-              </div>}
+              </div></details>}
               {intent.excludedSensitiveCriteria.length > 0 && <div className="talent-chat-sensitive-note"><CircleHelp size={17} /><p>Certains critères personnels ont été écartés. Le classement utilise uniquement les informations professionnelles.</p></div>}
               <p className="talent-score-disclaimer">La pertinence mesure la correspondance avec cette recherche. Elle ne constitue pas une décision de recrutement.</p>
             </div>
 
             {results.length ? <div className="talent-chat-result-list">{results.map((result, index) => {
-              const salary = formatSalary(result.salaryValue);
               const selected = selectedIds.has(result.id);
               return (
                 <article className={`talent-chat-result-card${selected ? " is-selected" : ""}`} key={result.id}>
                   <div className="talent-chat-result-rank"><span>#{index + 1}</span><div className="talent-relevance-score" style={{ "--score": `${result.relevanceScore * 3.6}deg` } as React.CSSProperties}><strong>{result.relevanceScore}<small>%</small></strong></div><small>Pertinence</small></div>
                   <div className="talent-chat-result-main">
                     <div className="talent-chat-result-title"><div><span>{availabilityLabels[result.availability] || "À confirmer"}</span><h3>{result.fullname}</h3><p>{result.posteType || "Expertise à compléter"}</p></div>{result.localisation && <small><MapPin size={14} />{result.localisation}</small>}</div>
-                    {result.summary && <p className="talent-chat-result-summary">{result.summary}</p>}
                     <div className="talent-chat-match-grid">
-                      {result.matches.length > 0 && <div><strong>Meilleures correspondances</strong><ul>{result.matches.slice(0, 2).map((match) => <li key={match}><Check size={14} />{match}</li>)}</ul></div>}
+                      {result.matches.length > 0 && <div><strong>Pourquoi ce profil ressort</strong><ul>{result.matches.slice(0, 2).map((match) => <li key={match}><Check size={14} />{match}</li>)}</ul></div>}
                       {result.gaps.length > 0 && <div className="has-gaps"><strong>À vérifier</strong><ul>{result.gaps.slice(0, 1).map((gap) => <li key={gap}><CircleHelp size={14} />{gap}</li>)}</ul></div>}
                     </div>
-                    {result.evidence.length > 0 && <details className="talent-chat-evidence"><summary>Voir les éléments professionnels retenus</summary><ul>{result.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul></details>}
-                    <div className="talent-chat-result-meta">{result.profileScore !== null && <span><Gauge size={15} /> Qualité des données : {result.profileScore}%</span>}{salary && <span><WalletCards size={15} />{salary}</span>}</div>
-                  </div>
-                  <div className="talent-chat-result-actions">
+                    {(result.summary || result.evidence.length > 0 || result.profileScore !== null) && <details className="talent-chat-evidence"><summary>Voir l’explication complète</summary>{result.summary && <p>{result.summary}</p>}{result.evidence.length > 0 && <ul>{result.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul>}{result.profileScore !== null && <small><Gauge size={14} /> Qualité documentaire du profil : {result.profileScore}%</small>}</details>}
+                    <div className="talent-chat-result-actions">
+                    {canManageCollections && <CollectionPicker candidateId={result.id} source="talent_search_result" />}
                     {canManageCollections && <label className="talent-result-select"><input type="checkbox" checked={selected} onChange={() => toggleCandidate(result.id)} /><span>{selected ? "Sélectionné" : "Sélectionner"}</span></label>}
                     <Link className="button button-secondary" href={`/dashboard/talents/${result.id}?from=recherche`}>Ouvrir le profil <ChevronRight size={16} /></Link>
+                    </div>
                   </div>
                 </article>
               );

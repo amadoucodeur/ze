@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -21,7 +21,6 @@ import {
   CV_TEXT_MAX_LENGTH,
   CV_TEXT_MIN_LENGTH,
   type CvImportItem,
-  type CvImportProgressEvent,
   type CvProcessingMetrics,
 } from "@/lib/cv/schema";
 
@@ -32,6 +31,10 @@ type StagedCv = Partial<CvImportItem> & {
   error?: string;
   analysisError?: string;
   extractionDurationMs?: number;
+  extractionMessage?: string;
+  extractionProgress?: number;
+  ocrUsed?: boolean;
+  ocrPageCount?: number;
 };
 
 type ApiResult =
@@ -54,27 +57,29 @@ type ProcessState = {
   items: Record<string, ProcessItem>;
 };
 
-async function readProgressStream(
-  response: Response,
-  onEvent: (event: CvImportProgressEvent) => void,
-) {
-  if (!response.body) throw new Error("Le suivi de l’analyse n’est pas disponible. Réessayez.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+type JobRecord = {
+  id: string;
+  client_reference: string;
+  source_name: string;
+  status: "queued" | "processing" | "retry_wait" | "completed" | "failed" | "cancelled";
+  progress_step: "queued" | "parsing" | "embedding" | "saving" | "completed" | "retry_wait" | "failed";
+  progress_message: string;
+  attempt_count: number;
+  max_attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  candidat_id: string | null;
+  result: Record<string, unknown>;
+  created_at?: string;
+};
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const line of lines) {
-      if (line.trim()) onEvent(JSON.parse(line) as CvImportProgressEvent);
-    }
-    if (done) break;
-  }
+const wait = (duration: number) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
-  if (buffer.trim()) onEvent(JSON.parse(buffer) as CvImportProgressEvent);
+function jobStage(job: JobRecord): ProcessItem["stage"] {
+  if (job.status === "completed") return "complete";
+  if (job.status === "failed" || job.status === "cancelled") return "error";
+  if (job.progress_step === "parsing" || job.progress_step === "embedding" || job.progress_step === "saving") return job.progress_step;
+  return "queued";
 }
 
 function formatDuration(seconds: number) {
@@ -96,6 +101,7 @@ const processStageLabel: Record<ProcessItem["stage"], string> = {
 export function TalentForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submissionStartedRef = useRef(false);
   const [items, setItems] = useState<StagedCv[]>([]);
   const [manualText, setManualText] = useState("");
   const [manualTitle, setManualTitle] = useState("CV saisi manuellement");
@@ -103,6 +109,39 @@ export function TalentForm() {
   const [submitting, setSubmitting] = useState(false);
   const [processState, setProcessState] = useState<ProcessState | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let timeout: number | undefined;
+    async function recoverPendingJobs() {
+      if (submissionStartedRef.current) return;
+      try {
+        const response = await fetch("/api/talents/import/jobs?active=1", { cache: "no-store" });
+        if (!response.ok || !active) return;
+        const payload = await response.json() as { jobs: JobRecord[] };
+        if (!payload.jobs.length) return;
+        const oldest = payload.jobs.reduce((value, job) => Math.min(value, new Date(job.created_at || Date.now()).getTime()), Date.now());
+        setProcessState({
+          total: payload.jobs.length,
+          completed: 0,
+          elapsedSeconds: Math.max(0, Math.floor((Date.now() - oldest) / 1_000)),
+          announcement: "Reprise du suivi des analyses déjà en cours.",
+          items: Object.fromEntries(payload.jobs.map((job) => [job.client_reference, {
+            clientId: job.client_reference,
+            sourceName: job.source_name,
+            stage: jobStage(job),
+            message: job.status === "retry_wait" ? `${job.progress_message} Tentative ${job.attempt_count + 1} sur ${job.max_attempts}.` : job.progress_message,
+            candidateId: job.candidat_id || undefined,
+          }])),
+        });
+        timeout = window.setTimeout(recoverPendingJobs, 3_000);
+      } catch {
+        timeout = window.setTimeout(recoverPendingJobs, 8_000);
+      }
+    }
+    void recoverPendingJobs();
+    return () => { active = false; if (timeout) window.clearTimeout(timeout); };
+  }, []);
 
   const extracting = items.some((item) => item.status === "extracting");
   const readyItems = items.filter(
@@ -135,7 +174,13 @@ export function TalentForm() {
         const clientId = pending[index].clientId;
         const extractionStartedAt = performance.now();
         try {
-          const extracted = await extractCvFile(file);
+          const extracted = await extractCvFile(file, (progress) => {
+            setItems((current) => current.map((item) => item.clientId === clientId ? {
+              ...item,
+              extractionMessage: progress.message,
+              extractionProgress: progress.progress,
+            } : item));
+          });
           setItems((current) =>
             current.map((item) =>
               item.clientId === clientId
@@ -242,9 +287,11 @@ export function TalentForm() {
       ),
     });
     setSubmitting(true);
+    submissionStartedRef.current = true;
     const requestStartedAt = Date.now();
+    let jobsAccepted = false;
     try {
-      const response = await fetch("/api/talents/import", {
+      const response = await fetch("/api/talents/import/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: payloadItems }),
@@ -253,108 +300,66 @@ export function TalentForm() {
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(payload.message || "L’import n’a pas pu démarrer.");
       }
+      const queued = (await response.json()) as { jobs: JobRecord[] };
+      if (!queued.jobs?.length) throw new Error("La file d’analyse est vide. Réessayez.");
+      jobsAccepted = true;
+      const jobIds = queued.jobs.map((job) => job.id);
+      const expectedClients = new Set(payloadItems.map((item) => item.clientId));
+      let latestJobs = queued.jobs;
+      let consecutiveTrackingErrors = 0;
+      while (true) {
+        const elapsedSeconds = Math.floor((Date.now() - requestStartedAt) / 1000);
+        const completedJobs = latestJobs.filter((job) => job.status === "completed");
+        const failedJobs = latestJobs.filter((job) => job.status === "failed" || job.status === "cancelled");
+        setProcessState((current) => current ? {
+          ...current,
+          completed: completedJobs.length + failedJobs.length,
+          elapsedSeconds,
+          announcement: failedJobs.length
+            ? `${failedJobs.length} document${failedJobs.length > 1 ? "s demandent" : " demande"} une vérification.`
+            : completedJobs.length === payloadItems.length
+              ? "Tous les profils sont prêts."
+              : "Le traitement continue en arrière-plan. Vous pouvez quitter cette page.",
+          items: Object.fromEntries(latestJobs.map((job) => [job.client_reference, {
+            clientId: job.client_reference,
+            sourceName: job.source_name,
+            stage: jobStage(job),
+            message: job.status === "retry_wait"
+              ? `${job.progress_message} Tentative ${job.attempt_count + 1} sur ${job.max_attempts}.`
+              : job.last_error && job.status === "failed" ? job.last_error : job.progress_message,
+            candidateId: job.candidat_id || undefined,
+          }])),
+        } : current);
 
-      const results: ApiResult[] = [];
-      let batchError = "";
-      let lastElapsedSeconds = 0;
-      await readProgressStream(response, (event) => {
-        if (event.type === "batch_started") {
-          setProcessState((current) => current ? { ...current, total: event.total } : current);
-        } else if (event.type === "item_stage") {
-          setProcessState((current) => current ? {
-            ...current,
-            announcement: `${event.sourceName} : ${event.message}`,
-            items: {
-              ...current.items,
-              [event.clientId]: {
-                ...current.items[event.clientId],
-                clientId: event.clientId,
-                sourceName: event.sourceName,
-                stage: event.stage,
-                message: event.message,
-              },
-            },
-          } : current);
-        } else if (event.type === "item_ready") {
-          setProcessState((current) => current ? {
-            ...current,
-            announcement: `Le profil de ${event.fullname} est disponible. Sa préparation pour la recherche continue.`,
-            items: {
-              ...current.items,
-              [event.clientId]: {
-                ...current.items[event.clientId],
-                candidateId: event.candidateId,
-                message: "Profil consultable. Préparation de la recherche en cours…",
-              },
-            },
-          } : current);
-        } else if (event.type === "item_complete") {
-          results.push({
-            clientId: event.clientId,
-            status: "success",
-            candidateId: event.candidateId,
-            fullname: event.fullname,
-            metrics: event.metrics,
-            reused: event.reused,
-          });
-          setProcessState((current) => current ? {
-            ...current,
-            completed: Math.min(current.total, current.completed + 1),
-            announcement: event.reused ? `${event.fullname} était déjà présent dans le vivier.` : `${event.fullname} a été ajouté au vivier.`,
-            items: {
-              ...current.items,
-              [event.clientId]: {
-                ...current.items[event.clientId],
-                stage: "complete",
-                message: event.reused ? `Profil « ${event.fullname} » déjà présent, analyse réutilisée.` : `Profil « ${event.fullname} » ajouté au vivier.`,
-              },
-            },
-          } : current);
-        } else if (event.type === "item_error") {
-          results.push({ clientId: event.clientId, status: "error", message: event.message });
-          setProcessState((current) => current ? {
-            ...current,
-            completed: Math.min(current.total, current.completed + 1),
-            announcement: `Un CV doit être repris : ${event.message}`,
-            items: {
-              ...current.items,
-              [event.clientId]: {
-                ...current.items[event.clientId],
-                stage: "error",
-                message: event.message,
-              },
-            },
-          } : current);
-        } else if (event.type === "heartbeat") {
-          lastElapsedSeconds = event.elapsedSeconds;
-          setProcessState((current) => current ? {
-            ...current,
-            elapsedSeconds: event.elapsedSeconds,
-            completed: Math.max(current.completed, event.completed),
-            total: event.total,
-          } : current);
-        } else if (event.type === "batch_complete") {
-          setProcessState((current) => current ? {
-            ...current,
-            completed: event.imported + event.failed,
-            announcement: event.failed
-              ? `${event.failed} document${event.failed > 1 ? "s" : ""} à reprendre.`
-              : `Analyse terminée : ${event.imported} profil${event.imported > 1 ? "s" : ""} ajouté${event.imported > 1 ? "s" : ""}.`,
-          } : current);
-        } else if (event.type === "batch_error") {
-          batchError = event.message;
-        }
-      });
-      const returnedIds = new Set(results.map((result) => result.clientId));
-      if (batchError || returnedIds.size < payloadItems.length) {
-        const interruptionMessage = batchError || "Le flux de suivi s’est interrompu. Relancez uniquement les CV non terminés.";
-        for (const item of payloadItems) {
-          if (!returnedIds.has(item.clientId)) {
-            results.push({ clientId: item.clientId, status: "error", message: interruptionMessage });
+        if (completedJobs.length + failedJobs.length >= expectedClients.size) break;
+        await wait(2_500);
+        try {
+          const trackingResponse = await fetch(`/api/talents/import/jobs?ids=${jobIds.join(",")}`, { cache: "no-store" });
+          if (!trackingResponse.ok) throw new Error("Suivi temporairement indisponible");
+          const tracking = (await trackingResponse.json()) as { jobs: JobRecord[] };
+          if (tracking.jobs?.length) latestJobs = tracking.jobs;
+          consecutiveTrackingErrors = 0;
+        } catch {
+          consecutiveTrackingErrors += 1;
+          if (consecutiveTrackingErrors >= 5) {
+            throw new Error("Les analyses continuent en arrière-plan. Revenez au vivier dans quelques instants pour voir les profils terminés.");
           }
+          await wait(2_500 * consecutiveTrackingErrors);
         }
       }
-      if (!results.length) throw new Error("Aucun résultat n’a été reçu. Vos textes sont conservés, vous pouvez relancer l’analyse.");
+
+      const results: ApiResult[] = latestJobs.map((job) => {
+        if (job.status !== "completed") return { clientId: job.client_reference, status: "error", message: job.last_error || "Le document doit être vérifié." };
+        const metrics = (job.result.metrics || {}) as CvProcessingMetrics;
+        return {
+          clientId: job.client_reference,
+          status: "success",
+          candidateId: String(job.result.candidateId || job.candidat_id),
+          fullname: String(job.result.fullname || "Candidat à identifier"),
+          metrics,
+          reused: Boolean(job.result.reused),
+        };
+      });
 
       const successfulIds = new Set(
         results.filter((result) => result.status === "success").map((result) => result.clientId),
@@ -397,13 +402,13 @@ export function TalentForm() {
           imported_count: imported,
           failed_count: failed,
           source_types: [...new Set(payloadItems.map((item) => item.sourceType))].join(","),
-          duration_ms: Math.max(lastElapsedSeconds * 1000, Date.now() - requestStartedAt),
-          parser_ms_total: successfulResults.reduce((total, result) => total + result.metrics.parserDurationMs, 0),
-          embedding_ms_total: successfulResults.reduce((total, result) => total + result.metrics.embeddingDurationMs, 0),
-          saving_ms_total: successfulResults.reduce((total, result) => total + result.metrics.savingDurationMs, 0),
-          parser_retry_count: successfulResults.reduce((total, result) => total + Math.max(0, result.metrics.parserAttempts - 1), 0),
-          input_characters: successfulResults.reduce((total, result) => total + result.metrics.inputCharacters, 0),
-          chunk_count: successfulResults.reduce((total, result) => total + result.metrics.chunkCount, 0),
+          duration_ms: Date.now() - requestStartedAt,
+          parser_ms_total: successfulResults.reduce((total, result) => total + (result.metrics.parserDurationMs || 0), 0),
+          embedding_ms_total: successfulResults.reduce((total, result) => total + (result.metrics.embeddingDurationMs || 0), 0),
+          saving_ms_total: successfulResults.reduce((total, result) => total + (result.metrics.savingDurationMs || 0), 0),
+          parser_retry_count: successfulResults.reduce((total, result) => total + Math.max(0, (result.metrics.parserAttempts || 0) - 1), 0),
+          input_characters: successfulResults.reduce((total, result) => total + (result.metrics.inputCharacters || 0), 0),
+          chunk_count: successfulResults.reduce((total, result) => total + (result.metrics.chunkCount || 0), 0),
           reused_count: successfulResults.filter((result) => result.reused).length,
           extraction_ms_total: successfulResults.reduce(
             (total, result) => total + (items.find((item) => item.clientId === result.clientId)?.extractionDurationMs || 0),
@@ -434,7 +439,9 @@ export function TalentForm() {
     } catch (error) {
       setProcessState((current) => current ? {
         ...current,
-        announcement: "Le traitement s’est interrompu. Les textes sont conservés pour une nouvelle tentative.",
+        announcement: jobsAccepted
+          ? "Le suivi s’est interrompu, mais les travaux déjà placés continuent en arrière-plan."
+          : "L’import n’a pas été placé dans la file.",
       } : current);
       setMessage({
         type: "error",
@@ -442,6 +449,7 @@ export function TalentForm() {
       });
     } finally {
       setSubmitting(false);
+      submissionStartedRef.current = false;
     }
   }
 
@@ -478,7 +486,7 @@ export function TalentForm() {
             <span className="cv-dropzone-icon"><Files size={27} /></span>
             <i /><i /><i />
           </span>
-          <div><strong>{items.length ? "Ajoutez d’autres CV au lot" : "Déposez tout votre lot de CV ici"}</strong><p>Jusqu’à {CV_IMPORT_LIMIT} fichiers · PDF, DOCX, TXT ou MD · 10 Mo maximum chacun</p></div>
+          <div><strong>{items.length ? "Ajoutez d’autres CV au lot" : "Déposez tout votre lot de CV ici"}</strong><p>Jusqu’à {CV_IMPORT_LIMIT} fichiers · PDF, images, DOCX, TXT ou MD · 10 Mo maximum chacun</p></div>
           <button className="button button-secondary" type="button" disabled={submitting} onClick={() => fileInputRef.current?.click()}>
             {items.length ? "Ajouter des fichiers" : "Sélectionner plusieurs fichiers"}
           </button>
@@ -499,10 +507,10 @@ export function TalentForm() {
                 <div className="cv-file-copy">
                   <small>Profil {index + 1}</small>
                   <strong>{item.sourceName}</strong>
-                  {item.status === "extracting" && <p>Extraction du texte sur cet appareil…</p>}
+                  {item.status === "extracting" && <p>{item.extractionMessage || "Extraction du texte sur cet appareil…"}</p>}
                   {item.status === "ready" && item.text && (
                     <>
-                      <p>{item.text.length.toLocaleString("fr-FR")} caractères prêts à analyser</p>
+                      <p>{item.text.length.toLocaleString("fr-FR")} caractères prêts à analyser{item.ocrUsed ? ` · ${item.ocrPageCount || 1} page${(item.ocrPageCount || 1) > 1 ? "s" : ""} reconnue${(item.ocrPageCount || 1) > 1 ? "s" : ""} localement` : ""}</p>
                       {item.analysisError && <div className="cv-analysis-recovery"><p>{item.analysisError}</p><button type="button" disabled={submitting} onClick={submitImport}>Relancer l’analyse</button></div>}
                       <details className="cv-text-preview">
                         <summary>Vérifier ou corriger le texte extrait</summary>

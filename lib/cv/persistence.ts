@@ -72,7 +72,6 @@ function candidatePayload(parsed: ParsedCv, source?: string) {
     weakness: parsed.pointsAttention,
     ...(source ? { source } : {}),
     statut: parsed.availability,
-    salary_value: parsed.salaryValue,
     performance_score: parsed.performance.overall,
     performance: parsed.performance,
     embedding_model: CV_EMBEDDING_MODEL,
@@ -401,7 +400,7 @@ export async function updateCandidateFromParsedCv({
 
   const { data: candidate, error: candidateError } = await admin
     .from("candidats")
-    .select("id, fullname, poste_type, localisation, summary, contacts, industries, weakness, statut, salary_value, performance_score, performance, embedding_model, updated_at")
+    .select("id, fullname, poste_type, localisation, summary, contacts, industries, weakness, statut, performance_score, performance, embedding_model, updated_at")
     .eq("id", candidateId)
     .eq("organisation_id", organisationId)
     .maybeSingle();
@@ -438,7 +437,6 @@ export async function updateCandidateFromParsedCv({
         industries: candidate.industries,
         weakness: candidate.weakness,
         statut: candidate.statut,
-        salary_value: candidate.salary_value,
         performance_score: candidate.performance_score,
         performance: candidate.performance,
         embedding_model: candidate.embedding_model,
@@ -476,7 +474,6 @@ export async function updateCandidateFromParsedCv({
         industries: parsed.industries,
         weakness: parsed.pointsAttention,
         statut: parsed.availability,
-        salary_value: parsed.salaryValue,
         performance_score: parsed.performance.overall,
         performance: parsed.performance,
         embedding_model: CV_EMBEDDING_MODEL,

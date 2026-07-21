@@ -16,10 +16,11 @@ The activation path is:
 
 1. owner signs in with Google;
 2. owner creates the minimum viable organisation;
-3. owner imports a first CV;
-4. ZeRecruit returns a usable candidate result;
-5. owner invites collaborators;
-6. collaborators sign in with the credentials supplied by their organisation.
+3. owner creates a first offer from a title, text or document;
+4. owner imports one or more CVs;
+5. ZeRecruit returns candidate results contextualized against the offer;
+6. owner invites collaborators;
+7. collaborators sign in with the credentials supplied by their organisation.
 
 Do not put organisation creation and collaborator creation in the wrong order.
 
@@ -32,6 +33,8 @@ Both `owner` and `admin` roles can manage the organisation's collaborators. Neit
 ## Non-negotiable UX rules
 
 - One clear primary action per screen.
+- Keep the permanent sidebar limited to the five core destinations: `Accueil`, `Offres`, `Vivier`, `Importer` and, when authorised, `Équipe`. Search and collections belong inside `Vivier`; profile and organisation settings belong in the account and workspace controls.
+- The dashboard shows one contextual next action, not a checklist or a catalogue of features.
 - Value before configuration; defer optional settings.
 - Never expose an unavailable feature as a primary navigation item.
 - Use progressive disclosure instead of showing all complexity at once.
@@ -83,6 +86,10 @@ Keep operations on the server when they involve:
 - AI provider calls, parsing pipelines, embeddings or other secret-backed processing;
 - cross-tenant maintenance, trusted background jobs or bypassing RLS;
 - rate limits, audit guarantees or atomic multi-record workflows that require trusted execution.
+
+Billing is always server-owned. PayDunya keys must remain in non-public environment variables. A plan is activated only after the IPN SHA-512 signature is valid, ZeRecruit confirms the invoice directly with PayDunya, and the token, amount and internal reference match the pending ledger entry. Completion and organisation activation must be idempotent and transactional. Only the owner manages billing; administrators never receive access to payment history.
+
+The canonical commercial plans are: `Free` for 30 days and 1 user, `Essentiel` at 9,000 FCFA per month for 1 user, and `Équipe` at 30,000 FCFA per month for up to 8 users. Annual payment covers twelve months for the price of ten. Existing data remains readable after expiry, while new imports and secret-backed AI work require an active access period.
 
 Never use the admin client merely for convenience on a normal product query. Before moving an operation client-side, inspect the real database policies and test at least one allowed and one forbidden role/organisation case. RLS is part of the feature, not a substitute for verification. Never expose a secret key or trust an `organisation_id` only because it came from the client.
 

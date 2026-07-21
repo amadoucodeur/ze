@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, ChevronLeft, ChevronRight, CircleHelp, ClipboardList, Gauge, LoaderCircle, MapPin, MessageSquareText, Search, Sparkles, UserPlus, UsersRound } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, ChevronLeft, ChevronRight, CircleHelp, ClipboardList, ExternalLink, Gauge, Globe2, LoaderCircle, MapPin, MessageSquareText, Search, Sparkles, UserPlus, UsersRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { trackProductEvent } from "@/lib/analytics/client";
 import type { TalentSearchProgressEvent, TalentSearchResult } from "@/lib/search/schema";
@@ -12,7 +12,7 @@ type Offer = {
   id: string; title: string; department: string | null; status: string; contract_type: string | null; work_mode: string | null; location: string | null;
   headcount: number; target_start_date: string | null; salary_min: number | null; salary_max: number | null; salary_currency: string | null; salary_period: string | null;
   summary: string | null; mission: string | null; responsibilities: string[]; must_have_skills: string[]; nice_to_have_skills: string[]; languages: string[];
-  industries: string[]; min_experience_months: number | null; education: string | null; success_outcomes: string[]; recruiter_intent: string | null; points_to_clarify: string[];
+  industries: string[]; min_experience_months: number | null; education: string | null; success_outcomes: string[]; recruiter_intent: string | null; points_to_clarify: string[]; public_slug: string; published_at: string | null;
 };
 type Candidate = { id: string; fullname: string; poste_type: string | null; localisation: string | null; statut: string; performance_score: number | null };
 type Application = { id: string; offre_id: string; candidat_id: string; stage: string; match_score: number | null; match_summary: string | null; match_details: Record<string, unknown>; team_note: string | null; updated_at: string; candidat: Candidate | null };
@@ -24,7 +24,7 @@ const stages = [
   { value: "offer", label: "Proposition" }, { value: "hired", label: "Retenu" }, { value: "rejected", label: "Refusé" },
 ];
 const statusLabels: Record<string, string> = { draft: "Brouillon", open: "Ouverte", paused: "En pause", closed: "Clôturée" };
-const ManageOfferContext = createContext(false);
+const ManageOfferContext = createContext({ canManage: false, interviewGuidesEnabled: false });
 
 async function readStream(response: Response, onEvent: (event: TalentSearchProgressEvent) => void) {
   if (!response.body) throw new Error("Le suivi de la recherche n’est pas disponible.");
@@ -41,7 +41,7 @@ async function readStream(response: Response, onEvent: (event: TalentSearchProgr
 async function fetchOfferWorkspace(offerId: string) {
   const supabase = createClient();
   const [offerResult, appResult, questionResult] = await Promise.all([
-    supabase.from("offres").select("id, title, department, status, contract_type, work_mode, location, headcount, target_start_date, salary_min, salary_max, salary_currency, salary_period, summary, mission, responsibilities, must_have_skills, nice_to_have_skills, languages, industries, min_experience_months, education, success_outcomes, recruiter_intent, points_to_clarify").eq("id", offerId).maybeSingle(),
+    supabase.from("offres").select("id, title, department, status, contract_type, work_mode, location, headcount, target_start_date, salary_min, salary_max, salary_currency, salary_period, summary, mission, responsibilities, must_have_skills, nice_to_have_skills, languages, industries, min_experience_months, education, success_outcomes, recruiter_intent, points_to_clarify, public_slug, published_at").eq("id", offerId).maybeSingle(),
     supabase.from("candidatures").select("id, offre_id, candidat_id, stage, match_score, match_summary, match_details, team_note, updated_at, candidat:candidats(id, fullname, poste_type, localisation, statut, performance_score)").eq("offre_id", offerId).order("updated_at", { ascending: false }),
     supabase.from("interview_questions").select("id, candidature_id, question, purpose, expected_signals, category, position, candidate_answer, interviewer_note, score").order("position"),
   ]);
@@ -50,7 +50,7 @@ async function fetchOfferWorkspace(offerId: string) {
 
 function InterviewPanel({ application, questions, onQuestionsChange }: { application: Application; questions: InterviewQuestion[]; onQuestionsChange: (questions: InterviewQuestion[]) => void }) {
   const [generating, setGenerating] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState<string | null>(null); const [currentIndex, setCurrentIndex] = useState(0); const [open, setOpen] = useState(false);
-  const canManage = useContext(ManageOfferContext);
+  const { canManage, interviewGuidesEnabled } = useContext(ManageOfferContext);
   const candidateName = application.candidat?.fullname || "Candidat";
   const answeredCount = questions.filter((question) => question.candidate_answer?.trim()).length;
   const activeQuestion = questions[Math.min(currentIndex, Math.max(0, questions.length - 1))];
@@ -87,7 +87,10 @@ function InterviewPanel({ application, questions, onQuestionsChange }: { applica
     setSaving(false);
   }
 
-  if (!open) return <button className="pipeline-interview-launch" type="button" onClick={() => setOpen(true)}><MessageSquareText size={17} /><span><strong>{questions.length ? "Conduire l’entretien" : "Préparer l’entretien"}</strong><small>{questions.length ? `${answeredCount}/${questions.length} réponses saisies` : "Créer les questions adaptées"}</small></span><ChevronRight size={17} /></button>;
+  if (!open) {
+    if (!questions.length && !interviewGuidesEnabled) return <div className="pipeline-feature-locked"><MessageSquareText size={17} /><span><strong>Guide d’entretien</strong><small>Disponible avec Essentiel et Équipe</small></span></div>;
+    return <button className="pipeline-interview-launch" type="button" onClick={() => setOpen(true)}><MessageSquareText size={17} /><span><strong>{questions.length ? "Conduire l’entretien" : "Préparer l’entretien"}</strong><small>{questions.length ? `${answeredCount}/${questions.length} réponses saisies` : "Créer les questions adaptées"}</small></span><ChevronRight size={17} /></button>;
+  }
 
   return <section className="interview-workspace" role="dialog" aria-modal="true" aria-labelledby="interview-title">
     <header className="interview-workspace-head">
@@ -108,7 +111,7 @@ function InterviewPanel({ application, questions, onQuestionsChange }: { applica
   </section>;
 }
 
-export function OfferWorkspace({ offerId, canManage, justCreated }: { offerId: string; canManage: boolean; justCreated: boolean }) {
+export function OfferWorkspace({ offerId, organisationIdentifier, canManage, interviewGuidesEnabled, justCreated }: { offerId: string; organisationIdentifier: string; canManage: boolean; interviewGuidesEnabled: boolean; justCreated: boolean }) {
   const [offer, setOffer] = useState<Offer | null>(null); const [applications, setApplications] = useState<Application[]>([]); const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
   const [loading, setLoading] = useState(true); const [tab, setTab] = useState<Tab>(justCreated ? "matching" : "overview"); const [results, setResults] = useState<TalentSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false); const [searchStage, setSearchStage] = useState(""); const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(justCreated ? { type: "success", text: "Offre créée. Lancez le matching pour découvrir les profils les plus proches." } : null);
@@ -134,10 +137,17 @@ export function OfferWorkspace({ offerId, canManage, justCreated }: { offerId: s
     if (!offer || searching) return; setSearching(true); setMessage(null); setSearchStage("Compréhension du besoin…");
     try {
       const response = await fetch("/api/search/talents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ offerId }) });
-      if (!response.ok) throw new Error("La recherche n’a pas pu démarrer."); let streamError = ""; let completed = false;
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(payload.message || "La recherche n’a pas pu démarrer.");
+      }
+      const remainingHeader = response.headers.get("X-ZeRecruit-Matching-Remaining");
+      const remaining = remainingHeader === null ? null : Number(remainingHeader);
+      let streamError = ""; let completed = false;
       await readStream(response, (event) => { if (event.type === "stage") setSearchStage(event.message); else if (event.type === "complete") { completed = true; setResults(event.results); } else if (event.type === "clarification") streamError = event.question; else if (event.type === "error") streamError = event.message; });
       if (streamError) throw new Error(streamError);
       if (!completed) throw new Error("Le classement n’a pas été reçu. Relancez le matching.");
+      if (remaining !== null && Number.isInteger(remaining)) setMessage({ type: "success", text: remaining === 0 ? "Matching terminé. Vous avez utilisé les 3 essais du plan Free." : `Matching terminé. Il reste ${remaining} essai${remaining > 1 ? "s" : ""} sur le plan Free.` });
     } catch (error) { setMessage({ type: "error", text: error instanceof Error ? error.message : "Le matching n’a pas pu aboutir." }); }
     finally { setSearching(false); setSearchStage(""); }
   }
@@ -156,15 +166,46 @@ export function OfferWorkspace({ offerId, canManage, justCreated }: { offerId: s
     else { setApplications((current) => current.map((item) => item.id === application.id ? { ...item, stage } : item)); setMessage({ type: "success", text: stage === "interview" ? "Profil déplacé en entretien. Vous pouvez maintenant préparer les questions." : "Étape mise à jour." }); }
   }
 
+  async function updateOfferStatus() {
+    if (!offer || !canManage) return;
+    const nextStatus = offer.status === "closed" ? "open" : "closed";
+    const supabase = createClient();
+    const { error } = await supabase.from("offres").update({ status: nextStatus }).eq("id", offer.id);
+    if (error) {
+      const limitReached = error.message.includes("plan_active_offer_limit_reached");
+      setMessage({ type: "error", text: limitReached ? "Le plan Free possède déjà un recrutement actif. Clôturez-le avant de réouvrir cette offre." : "Le statut de l’offre n’a pas pu être modifié." });
+      return;
+    }
+    setOffer({ ...offer, status: nextStatus });
+    setMessage({ type: "success", text: nextStatus === "closed" ? "Recrutement clôturé. Une place est maintenant disponible pour une nouvelle offre." : "L’offre est de nouveau active." });
+  }
+
+  async function togglePublication() {
+    if (!offer || !canManage) return;
+    if (offer.status !== "open") {
+      setMessage({ type: "error", text: "Ouvrez d’abord le recrutement pour publier cette offre." });
+      return;
+    }
+    const publishedAt = offer.published_at ? null : new Date().toISOString();
+    const supabase = createClient();
+    const { error } = await supabase.from("offres").update({ published_at: publishedAt }).eq("id", offer.id);
+    if (error) {
+      setMessage({ type: "error", text: "La page carrière n’a pas pu être mise à jour. Réessayez." });
+      return;
+    }
+    setOffer({ ...offer, published_at: publishedAt });
+    setMessage({ type: "success", text: publishedAt ? "Offre publiée. Les candidats peuvent maintenant postuler." : "Offre retirée de la page carrière." });
+  }
+
   if (loading) return <div className="offer-workspace-loading"><LoaderCircle className="spin" size={25} /> Chargement de l’offre…</div>;
   if (!offer) return <div className="offer-list-error"><AlertCircle size={22} /><div><strong>Offre introuvable</strong><p>Retournez à la liste puis réessayez.</p></div></div>;
 
-  return <ManageOfferContext.Provider value={canManage}><div className="offer-workspace">
+  return <ManageOfferContext.Provider value={{ canManage, interviewGuidesEnabled }}><div className="offer-workspace">
     <header className="offer-hero"><div className="offer-hero-icon"><BriefcaseBusiness size={26} /></div><div><span className={`is-${offer.status}`}>{statusLabels[offer.status]}</span><h1>{offer.title}</h1><p>{offer.department || "Équipe à préciser"}{offer.location ? ` · ${offer.location}` : ""}</p></div><div className="offer-hero-metrics"><span><UsersRound size={17} /><strong>{applications.length}</strong> profils</span><span><MessageSquareText size={17} /><strong>{applications.filter((application) => application.stage === "interview").length}</strong> entretiens</span></div></header>
     {message && <div className={`offer-message is-${message.type}`} role={message.type === "error" ? "alert" : "status"}>{message.type === "error" ? <AlertCircle size={18} /> : <Check size={18} />}{message.text}</div>}
     <nav className="offer-tabs" aria-label="Sections de l’offre"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}><ClipboardList size={17} /> Vue d’ensemble</button><button className={tab === "matching" ? "active" : ""} onClick={() => setTab("matching")}><Sparkles size={17} /> Profils recommandés</button><button className={tab === "pipeline" ? "active" : ""} onClick={() => setTab("pipeline")}><UsersRound size={17} /> Processus <span>{applications.length}</span></button></nav>
 
-    {tab === "overview" && <div className="offer-overview-grid"><section className="offer-overview-main"><span>Intention validée</span><h2>Mission</h2><p>{offer.mission || offer.summary || "Mission à préciser."}</p>{offer.recruiter_intent && <div className="offer-intent"><Sparkles size={18} /><div><strong>Ce que le recruteur cherche vraiment</strong><p>{offer.recruiter_intent}</p></div></div>}<h3>Responsabilités</h3>{offer.responsibilities.length ? <ul>{offer.responsibilities.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="is-muted">À compléter.</p>}<h3>Résultats attendus</h3>{offer.success_outcomes.length ? <ul>{offer.success_outcomes.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="is-muted">À compléter.</p>}</section><aside className="offer-criteria-card"><h2>Critères de matching</h2><div className="is-required"><strong>Indispensable</strong>{offer.must_have_skills.length ? offer.must_have_skills.map((skill) => <span key={skill}>{skill}</span>) : <p>Aucun critère bloquant défini.</p>}</div><div><strong>Souhaité</strong>{offer.nice_to_have_skills.map((skill) => <span key={skill}>{skill}</span>)}</div>{offer.points_to_clarify.length > 0 && <div className="offer-points"><strong><CircleHelp size={15} /> À clarifier</strong><ul>{offer.points_to_clarify.map((point) => <li key={point}>{point}</li>)}</ul></div>}<button className="button button-primary" type="button" onClick={() => setTab("matching")}><Sparkles size={17} /> Trouver les profils <ArrowRight size={17} /></button></aside></div>}
+    {tab === "overview" && <div className="offer-overview-grid"><section className="offer-overview-main"><span>Intention validée</span><h2>Mission</h2><p>{offer.mission || offer.summary || "Mission à préciser."}</p>{offer.recruiter_intent && <div className="offer-intent"><Sparkles size={18} /><div><strong>Ce que le recruteur cherche vraiment</strong><p>{offer.recruiter_intent}</p></div></div>}<h3>Responsabilités</h3>{offer.responsibilities.length ? <ul>{offer.responsibilities.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="is-muted">À compléter.</p>}<h3>Résultats attendus</h3>{offer.success_outcomes.length ? <ul>{offer.success_outcomes.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="is-muted">À compléter.</p>}</section><aside className="offer-criteria-card"><h2>Critères de matching</h2><div className="is-required"><strong>Indispensable</strong>{offer.must_have_skills.length ? offer.must_have_skills.map((skill) => <span key={skill}>{skill}</span>) : <p>Aucun critère bloquant défini.</p>}</div><div><strong>Souhaité</strong>{offer.nice_to_have_skills.map((skill) => <span key={skill}>{skill}</span>)}</div>{offer.points_to_clarify.length > 0 && <div className="offer-points"><strong><CircleHelp size={15} /> À clarifier</strong><ul>{offer.points_to_clarify.map((point) => <li key={point}>{point}</li>)}</ul></div>}<button className="button button-primary" type="button" onClick={() => setTab("matching")}><Sparkles size={17} /> Trouver les profils <ArrowRight size={17} /></button><div className="offer-career-action"><strong><Globe2 size={16} /> Page carrière</strong><p>{offer.published_at ? "Cette offre reçoit des candidatures publiques." : "Publiez l’offre quand elle est prête à recevoir des candidatures."}</p>{offer.published_at && <Link href={`/carriere/${organisationIdentifier}/${offer.public_slug}`} target="_blank">Voir l’annonce <ExternalLink size={15} /></Link>}{canManage && <button className="button button-secondary" type="button" onClick={() => void togglePublication()}>{offer.published_at ? "Retirer l’annonce" : "Publier l’annonce"}</button>}</div>{canManage && <button className="button button-secondary offer-status-action" type="button" onClick={() => void updateOfferStatus()}>{offer.status === "closed" ? "Réouvrir le recrutement" : "Clôturer le recrutement"}</button>}</aside></div>}
 
     {tab === "matching" && <section className="offer-matching"><div className="offer-matching-head"><div><span>Matching contextuel</span><h2>Les profils pertinents pour cette offre</h2><p>Le pourcentage mesure uniquement la correspondance avec l’intention validée ci-dessus.</p></div><button className="button button-primary" type="button" disabled={searching} onClick={findMatches}>{searching ? <><LoaderCircle className="spin" size={18} /> {searchStage || "Recherche…"}</> : <><Search size={18} /> {results ? "Actualiser le matching" : "Lancer le matching"}</>}</button></div>{results === null && !searching ? <div className="offer-match-empty"><Sparkles size={28} /><h3>Votre vivier est prêt à être comparé.</h3><p>Lancez le matching pour obtenir un classement explicable et des points à vérifier.</p></div> : results?.length ? <div className="offer-match-list">{results.map((result, index) => { const existing = applicationByCandidate.get(result.id); return <article key={result.id}><div className="offer-match-rank"><span>#{index + 1}</span><strong>{result.relevanceScore}%</strong><small>Pertinence</small></div><div className="offer-match-copy"><span>{result.posteType || "Profil professionnel"}</span><h3>{result.fullname}</h3>{result.localisation && <p><MapPin size={14} />{result.localisation}</p>}<div className="offer-match-evidence">{result.matches.slice(0, 2).map((match) => <span key={match}><Check size={14} />{match}</span>)}{result.gaps.slice(0, 1).map((gap) => <span className="is-gap" key={gap}><CircleHelp size={14} />{gap}</span>)}</div></div><div className="offer-match-actions">{existing ? <span className="is-added"><Check size={16} /> Dans le processus</span> : canManage && <button type="button" onClick={() => void addCandidate(result)}><UserPlus size={17} /> Ajouter à l’offre</button>}<Link href={`/dashboard/talents/${result.id}`}>Voir le profil <ChevronRight size={16} /></Link></div></article>; })}</div> : results && <div className="offer-match-empty"><Search size={28} /><h3>Aucun profil suffisamment proche.</h3><p>Élargissez un critère souhaité ou importez de nouveaux CV pour cette offre.</p><Link className="button button-secondary" href={`/dashboard/talents/nouveau?offre=${offer.id}`}>Importer des CV</Link></div>}</section>}
 

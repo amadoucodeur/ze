@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Check, FolderPlus, LoaderCircle, Plus, X } from "lucide-react";
+import { trackProductEvent } from "@/lib/analytics/client";
 import { createClient } from "@/lib/supabase/client";
 
 type Collection = { id: string; name: string; color: string };
 
-export function CollectionPicker({ candidateId }: { candidateId: string }) {
+export function CollectionPicker({ candidateId, source = "candidate_profile" }: { candidateId: string; source?: string }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -16,6 +18,26 @@ export function CollectionPicker({ candidateId }: { candidateId: string }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    function closeAndRestoreFocus() {
+      detailsRef.current?.removeAttribute("open");
+      summaryRef.current?.focus();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && detailsRef.current?.open) closeAndRestoreFocus();
+    }
+    function onPointerDown(event: PointerEvent) {
+      const details = detailsRef.current;
+      if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.removeAttribute("open");
+    }
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -53,6 +75,7 @@ export function CollectionPicker({ candidateId }: { candidateId: string }) {
         return next;
       });
       setMessage(selected ? `Retiré de « ${collection.name} ».` : `Ajouté à « ${collection.name} ».`);
+      if (!selected) void trackProductEvent("candidate_added_to_collection", { collection_id: collection.id, source });
     }
     setPendingId(null);
   }
@@ -85,17 +108,18 @@ export function CollectionPicker({ candidateId }: { candidateId: string }) {
       setSelectedIds((current) => new Set(current).add(data.id));
       setNewName("");
       setMessage(`Collection « ${data.name} » créée.`);
+      void trackProductEvent("candidate_added_to_collection", { collection_id: data.id, source });
     }
     setCreating(false);
   }
 
   return (
     <details className="collection-picker" ref={detailsRef}>
-      <summary><FolderPlus size={17} /> Collection</summary>
+      <summary ref={summaryRef}><FolderPlus size={17} /> Enregistrer</summary>
       <div className="collection-picker-popover">
         <div className="collection-picker-heading">
           <div><strong>Ranger ce profil</strong><small>Une collection peut être partagée avec l’équipe.</small></div>
-          <button type="button" aria-label="Fermer" onClick={() => detailsRef.current?.removeAttribute("open")}><X size={17} /></button>
+          <button type="button" aria-label="Fermer" onClick={() => { detailsRef.current?.removeAttribute("open"); summaryRef.current?.focus(); }}><X size={17} /></button>
         </div>
         {loading ? (
           <div className="collection-picker-loading"><LoaderCircle className="spin" size={19} /> Chargement…</div>

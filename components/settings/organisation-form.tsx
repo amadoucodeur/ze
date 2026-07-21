@@ -15,9 +15,11 @@ type OrganisationFormProps = {
   mode: "create" | "update";
   organisation?: CurrentOrganisation;
   defaultEmail?: string | null;
+  selectedPlan?: string | null;
+  selectedCycle?: string;
 };
 
-export function OrganisationForm({ mode, organisation, defaultEmail }: OrganisationFormProps) {
+export function OrganisationForm({ mode, organisation, defaultEmail, selectedPlan, selectedCycle }: OrganisationFormProps) {
   const actionHandler = mode === "create" ? createOrganisationAction : updateOrganisationAction;
   const [state, action, pending] = useActionState(actionHandler, initialState);
   const [identifier, setIdentifier] = useState(organisation?.identifiant ?? "");
@@ -30,6 +32,7 @@ export function OrganisationForm({ mode, organisation, defaultEmail }: Organisat
 
   return (
     <form action={action} className="settings-form organisation-settings-form">
+      {mode === "create" && <><input type="hidden" name="selectedPlan" value={selectedPlan || ""} /><input type="hidden" name="selectedCycle" value={selectedCycle === "year" ? "year" : "month"} /></>}
       <div className="settings-card settings-card-main">
         <div className="settings-card-heading"><span className="settings-icon"><Building2 size={19} /></span><div><h2>{mode === "create" ? "Identité de votre entreprise" : "Informations de l’organisation"}</h2><p>{mode === "create" ? "Créez l’espace qui accueillera votre équipe et vos candidats." : "Gardez les coordonnées et l’identité de votre espace à jour."}</p></div></div>
         <div className="settings-fields-grid">

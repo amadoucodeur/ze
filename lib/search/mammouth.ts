@@ -25,6 +25,58 @@ function extractJson(content: string) {
   return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
 }
 
+function normalizeForGrounding(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+#.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isExplicitlyMentioned(source: string, value: string) {
+  const normalizedValue = normalizeForGrounding(value);
+  return normalizedValue.length >= 2 && source.includes(normalizedValue);
+}
+
+function groundIntentInUserRequest(intent: TalentSearchIntent, messages: TalentSearchMessage[]): TalentSearchIntent {
+  const rawUserRequest = messages.filter((message) => message.role === "user").map((message) => message.content).join(". ");
+  const source = normalizeForGrounding(rawUserRequest);
+  const hasExplicitExperience = /\b\d+(?:[.,]\d+)?\s*(?:ans?|annees?|mois)\b/.test(source)
+    && /\b(?:experience|anciennete|minimum|min|au moins)\b/.test(source);
+  const hasExplicitProfileQuality = /\b(?:qualite|complet|documente|score)\b/.test(source) && /\b\d{1,3}\s*%?\b/.test(source);
+  const hasExplicitSalary = /\b(?:salaire|salarial|budget|remuneration|fcfa|xof|eur|euro|usd|dollar)\b/.test(source);
+  const availabilityTerms: Record<string, string[]> = {
+    available: ["disponible", "libre", "immediatement"],
+    employed: ["en poste"],
+    open_to_opportunities: ["a l ecoute", "opportunites"],
+    freelance: ["freelance", "independant"],
+    student: ["etudiant", "etudiante", "en formation"],
+    unavailable: ["indisponible"],
+    unknown: ["a confirmer", "inconnue", "inconnu"],
+  };
+
+  const safeQueries = [...new Set([
+    intent.understoodRequest,
+    rawUserRequest.replace(/\s+/g, " ").trim().slice(0, 500),
+  ].filter((query) => query.length >= 3))].slice(0, 3);
+
+  return {
+    ...intent,
+    searchQueries: safeQueries,
+    mustHaveSkills: intent.mustHaveSkills.filter((value) => isExplicitlyMentioned(source, value)),
+    niceToHaveSkills: intent.niceToHaveSkills.filter((value) => isExplicitlyMentioned(source, value)),
+    locations: intent.locations.filter((value) => isExplicitlyMentioned(source, value)),
+    languages: intent.languages.filter((value) => isExplicitlyMentioned(source, value)),
+    industries: intent.industries.filter((value) => isExplicitlyMentioned(source, value)),
+    availability: intent.availability.filter((value) => (availabilityTerms[value] || []).some((term) => source.includes(term))),
+    minExperienceMonths: hasExplicitExperience ? intent.minExperienceMonths : null,
+    minProfileScore: hasExplicitProfileQuality ? intent.minProfileScore : null,
+    salary: hasExplicitSalary ? intent.salary : { maximum: null, currency: null, period: null },
+  };
+}
+
 export async function understandTalentSearch(
   messages: TalentSearchMessage[],
   attempt = 0,
@@ -88,12 +140,7 @@ Schéma exact :
   try {
     const content = responseSchema.parse(payload).choices[0].message.content;
     const intent = talentSearchIntentSchema.parse(extractJson(content));
-    return {
-      ...intent,
-      searchQueries: intent.searchQueries.length || intent.needsClarification
-        ? intent.searchQueries
-        : [intent.understoodRequest],
-    };
+    return groundIntentInUserRequest(intent, messages);
   } catch (error) {
     if (attempt === 0 && (error instanceof z.ZodError || error instanceof SyntaxError || error instanceof Error)) {
       return understandTalentSearch(messages, 1);

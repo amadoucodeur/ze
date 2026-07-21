@@ -31,7 +31,7 @@ export async function GET(request: Request) {
             await supabase.auth.signOut();
             return NextResponse.redirect(`${url.origin}/auth/auth-code-error?reason=login-method`);
           }
-          next = "/dashboard";
+          if (!next.startsWith("/dashboard") || next.startsWith("//")) next = "/dashboard";
         } else if (next === "/nouveau-mot-de-passe") {
           const { data: profile, error: profileError } = await admin
             .from("profiles")

@@ -1,19 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  AlertCircle,
   Archive,
   ArrowUpDown,
   ChevronRight,
   Gauge,
+  LoaderCircle,
   MapPin,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Plus,
   UserRound,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export type TalentPoolItem = {
   id: string;
@@ -42,6 +46,64 @@ type Filters = {
   sort: "recent" | "score" | "name";
 };
 
+type TalentQueryRow = {
+  id: string;
+  fullname: string;
+  poste_type: string | null;
+  localisation: string | null;
+  summary: string | null;
+  statut: string | null;
+  performance_score: number | null;
+  archived_at: string | null;
+  created_by: string;
+  created_at: string;
+  industries: string[] | null;
+  skills: Array<{ name: string; expertise: string | null }> | null;
+  languages: Array<{ name: string; level: string | null }> | null;
+  creator_name: string | null;
+  total_count: number | string;
+};
+
+const PAGE_SIZE = 24;
+
+function toTalentPoolItem(talent: TalentQueryRow): TalentPoolItem {
+  return {
+    id: talent.id,
+    fullname: talent.fullname,
+    posteType: talent.poste_type,
+    localisation: talent.localisation,
+    summary: talent.summary,
+    statut: talent.statut || "unknown",
+    performanceScore: talent.performance_score,
+    archivedAt: talent.archived_at,
+    createdAt: talent.created_at,
+    creatorName: talent.creator_name || "un membre de l’équipe",
+    industries: Array.isArray(talent.industries) ? talent.industries : [],
+    skills: Array.isArray(talent.skills) ? talent.skills : [],
+    languages: Array.isArray(talent.languages) ? talent.languages : [],
+  };
+}
+
+async function loadTalentPage(archived: boolean, filters: Filters, offset: number) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("search_candidate_pool", {
+    p_archived: archived,
+    p_query: filters.query.trim(),
+    p_availability: filters.availability,
+    p_location: filters.location.trim(),
+    p_skill: filters.skill.trim(),
+    p_language: filters.language.trim(),
+    p_industry: filters.industry.trim(),
+    p_min_score: filters.minScore ? Number(filters.minScore) : null,
+    p_sort: filters.sort,
+    p_limit: PAGE_SIZE,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  const rows = (data || []) as TalentQueryRow[];
+  return { rows, count: rows.length ? Number(rows[0].total_count) || 0 : 0 };
+}
+
 const emptyFilters: Filters = {
   query: "",
   availability: "",
@@ -63,24 +125,64 @@ const availabilityLabels: Record<string, string> = {
   unknown: "À confirmer",
 };
 
-function normalize(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-}
-
-function includes(value: string | null, term: string) {
-  return !term || normalize(value || "").includes(normalize(term));
-}
-
 export function TalentPoolExplorer({
-  talents,
   archived,
   initialQuery = "",
+  canCreate,
 }: {
-  talents: TalentPoolItem[];
   archived: boolean;
   initialQuery?: string;
+  canCreate: boolean;
 }) {
+  const [talents, setTalents] = useState<TalentPoolItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [filters, setFilters] = useState<Filters>({ ...emptyFilters, query: initialQuery });
+
+  useEffect(() => {
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      async function loadInitialPage() {
+        setRefreshing(true);
+        setLoadError(null);
+        try {
+          const { rows, count } = await loadTalentPage(archived, filters, 0);
+          if (!active) return;
+          setTalents(rows.map(toTalentPoolItem));
+          setTotalCount(count);
+        } catch {
+          if (active) setLoadError("Les profils ne peuvent pas être chargés pour le moment.");
+        } finally {
+          if (active) {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        }
+      }
+      void loadInitialPage();
+    }, 250);
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [archived, filters, reloadKey]);
+
+  async function loadMore() {
+    if (loadingMore || talents.length >= totalCount) return;
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const { rows, count } = await loadTalentPage(archived, filters, talents.length);
+      const nextTalents = rows.map(toTalentPoolItem);
+      setTalents((current) => [...current, ...nextTalents]);
+      setTotalCount(count);
+    } catch {
+      setLoadError("La suite des profils n’a pas pu être chargée. Réessayez.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const activeFilterCount = [
     filters.availability,
@@ -90,37 +192,9 @@ export function TalentPoolExplorer({
     filters.industry,
     filters.minScore,
   ].filter(Boolean).length;
+  const hasActiveSearch = activeFilterCount > 0 || filters.query.trim().length > 0;
 
-  const filteredTalents = useMemo(() => {
-    const queryTerms = normalize(filters.query).split(/\s+/).filter(Boolean);
-    const minScore = filters.minScore ? Number(filters.minScore) : null;
-    const matches = talents.filter((talent) => {
-      const searchable = [
-        talent.fullname,
-        talent.posteType,
-        talent.localisation,
-        talent.summary,
-        talent.creatorName,
-        ...talent.industries,
-        ...talent.skills.map((skill) => `${skill.name} ${skill.expertise || ""}`),
-        ...talent.languages.map((language) => `${language.name} ${language.level || ""}`),
-      ].filter(Boolean).join(" ");
-      const normalizedSearchable = normalize(searchable);
-      return (queryTerms.length === 0 || queryTerms.every((term) => normalizedSearchable.includes(term)))
-        && (!filters.availability || talent.statut === filters.availability)
-        && includes(talent.localisation, filters.location)
-        && (!filters.skill || talent.skills.some((skill) => includes(skill.name, filters.skill)))
-        && (!filters.language || talent.languages.some((language) => includes(language.name, filters.language)))
-        && (!filters.industry || talent.industries.some((industry) => includes(industry, filters.industry)))
-        && (minScore === null || (talent.performanceScore || 0) >= minScore);
-    });
-
-    return matches.sort((a, b) => {
-      if (filters.sort === "name") return a.fullname.localeCompare(b.fullname, "fr");
-      if (filters.sort === "score") return (b.performanceScore || 0) - (a.performanceScore || 0);
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  }, [filters, talents]);
+  const filteredTalents = talents;
 
   const resetFilters = () => setFilters(emptyFilters);
   const semanticQuery = [
@@ -136,8 +210,20 @@ export function TalentPoolExplorer({
     ? `/dashboard/recherche?q=${encodeURIComponent(semanticQuery)}`
     : "/dashboard/recherche";
 
+  if (loading) {
+    return <div className="talents-empty-state" role="status"><span><LoaderCircle className="spin" size={30} /></span><div><small>Chargement</small><h2>Préparation du vivier…</h2><p>Les profils autorisés pour votre organisation arrivent.</p></div></div>;
+  }
+
+  if (loadError && talents.length === 0) {
+    return <div className="talents-empty-state" role="alert"><span><AlertCircle size={30} /></span><div><small>Chargement interrompu</small><h2>Le vivier est momentanément indisponible.</h2><p>{loadError}</p><button className="button button-secondary" type="button" onClick={() => setReloadKey((value) => value + 1)}>Réessayer</button></div></div>;
+  }
+
+  if (talents.length === 0 && !hasActiveSearch) {
+    return <div className="talents-empty-state"><span>{archived ? <Archive size={30} /> : <UserRound size={30} />}</span><div><small>{archived ? "Archives vides" : "Votre première étape utile"}</small><h2>{archived ? "Aucun profil archivé." : "Transformez votre premier CV en profil."}</h2><p>{archived ? "Les profils archivés restent récupérables et apparaîtront ici." : "Déposez plusieurs documents ou collez un texte. ZeRecruit crée un profil distinct pour chaque personne."}</p>{canCreate && !archived ? <Link className="button button-primary" href="/dashboard/talents/nouveau"><Plus size={18} /> Importer mes premiers CV</Link> : !archived && <p className="talents-viewer-note">Votre accès est en lecture seule. Un recruteur de l’organisation peut créer le premier profil.</p>}</div></div>;
+  }
+
   return (
-    <section className="talent-pool-explorer" aria-label={archived ? "Profils archivés" : "Tous les profils"}>
+    <section className="talent-pool-explorer" aria-label={archived ? "Profils archivés" : "Tous les profils"} aria-busy={refreshing}>
       <div className="talent-pool-search-card">
         <div className="talent-pool-search-copy">
           <span className="talent-pool-search-icon" aria-hidden="true"><Search size={22} /></span>
@@ -178,12 +264,12 @@ export function TalentPoolExplorer({
         </div>
         <div className="talent-pool-filter-footer">
           <button type="button" disabled={activeFilterCount === 0} onClick={resetFilters}><RotateCcw size={16} /> Réinitialiser</button>
-          <span>Les filtres s’appliquent instantanément aux profils affichés.</span>
+          <span>Les filtres recherchent dans l’ensemble du vivier.</span>
         </div>
       </details>
 
       <div className="talent-pool-results-heading">
-        <div><strong>{filteredTalents.length}</strong><span>profil{filteredTalents.length > 1 ? "s" : ""} affiché{filteredTalents.length > 1 ? "s" : ""}</span></div>
+        <div><strong>{totalCount}</strong><span>profil{totalCount > 1 ? "s" : ""} trouvé{totalCount > 1 ? "s" : ""}{talents.length < totalCount ? ` · ${talents.length} affichés` : ""}{refreshing ? " · actualisation…" : ""}</span></div>
         <label><ArrowUpDown size={16} /><span className="sr-only">Trier les profils</span><select value={filters.sort} onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value as Filters["sort"] }))}><option value="recent">Plus récents</option><option value="score">Mieux documentés</option><option value="name">Ordre alphabétique</option></select></label>
       </div>
 
@@ -213,6 +299,8 @@ export function TalentPoolExplorer({
           <button className="button button-secondary" type="button" onClick={resetFilters}><RotateCcw size={17} /> Effacer les filtres</button>
         </div>
       )}
+      {loadError && talents.length > 0 && <div className="form-message form-error" role="alert"><AlertCircle size={17} /> {loadError}</div>}
+      {talents.length < totalCount && <div className="talent-pool-load-more"><button className="button button-secondary" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <><LoaderCircle className="spin" size={17} /> Chargement…</> : `Afficher les profils suivants (${totalCount - talents.length})`}</button></div>}
     </section>
   );
 }

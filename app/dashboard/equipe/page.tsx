@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, CheckCircle2, Clock3, Settings2, UserPlus, Users } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
+import { getSeatCapacity } from "@/lib/billing/entitlements";
 import { getCurrentProfile, type ProfileRole } from "@/lib/supabase/current-profile";
 
 export const metadata: Metadata = { title: "Équipe" };
@@ -24,6 +26,11 @@ export default async function TeamPage() {
   if (!profile) redirect("/connexion");
   if (profile.role !== "owner" && profile.role !== "admin") redirect("/dashboard");
   if (!profile.organisation_id || !profile.organisation) redirect(profile.role === "owner" ? "/dashboard/organisation/nouvelle" : "/dashboard");
+  const plan = getPlan(profile.organisation.plan);
+  const planEnabled = hasActivePlanAccess(profile.organisation) && plan.teamManagementEnabled;
+  const seatCapacity = await getSeatCapacity(profile.organisation);
+
+  if (!planEnabled) return <div className="dashboard-settings-page team-page"><header className="dashboard-content-header"><div><span>Collaboration</span><h1>Recrutez à plusieurs</h1><p>Les comptes collaborateurs, rôles et accès partagés sont inclus dans le plan Équipe.</p></div></header><section className="plan-gate-card"><Users size={29} /><h2>Jusqu’à 8 utilisateurs avec Équipe</h2><p>Le plan actuel conserve un espace personnel pour le propriétaire. Passez à Équipe pour inviter des administrateurs, recruteurs ou lecteurs.</p>{profile.role === "owner" ? <Link className="button button-primary" href="/dashboard/abonnement?plan=team">Découvrir le plan Équipe</Link> : <span>Demandez au propriétaire de mettre à niveau le plan.</span>}</section></div>;
 
   const admin = createAdminClient();
   const { data: members } = await admin
@@ -37,7 +44,8 @@ export default async function TeamPage() {
 
   return (
     <div className="dashboard-settings-page team-page">
-      <header className="dashboard-content-header"><div><span>Administration</span><h1>Votre équipe</h1><p>Créez et gérez les accès des collaborateurs de {profile.organisation.name}.</p></div><Link className="button button-primary team-add-button" href="/dashboard/equipe/nouveau"><UserPlus size={17} /> Ajouter un collaborateur</Link></header>
+      <header className="dashboard-content-header"><div><span>Administration</span><h1>Votre équipe</h1><p>Créez et gérez les accès des collaborateurs de {profile.organisation.name}.</p></div>{seatCapacity.allowed && <Link className="button button-primary team-add-button" href="/dashboard/equipe/nouveau"><UserPlus size={17} /> Ajouter un collaborateur</Link>}</header>
+      {!seatCapacity.allowed && <div className="plan-limit-notice" role="status"><div><strong>Les {plan.seatLimit} places du plan Équipe sont utilisées</strong><span>Suspendre un accès libère une place. Les profils et historiques du collaborateur restent conservés.</span></div></div>}
       <div className="team-stats-grid"><article><span><Users size={19} /></span><div><small>Collaborateurs</small><strong>{collaborators.length}</strong></div></article><article><span><CheckCircle2 size={19} /></span><div><small>Accès actifs</small><strong>{activeCollaborators}</strong></div></article><article><span><Clock3 size={19} /></span><div><small>Organisation</small><strong>{profile.organisation.name}</strong></div></article></div>
       {collaborators.length === 0 ? <div className="team-empty-state"><span><UserPlus size={27} /></span><h2>Invitez votre premier collaborateur.</h2><p>Créez son identifiant utilisateur@organisation, puis générez ou définissez son mot de passe de départ.</p><Link className="button button-primary" href="/dashboard/equipe/nouveau">Créer un accès <ArrowRight size={17} /></Link></div> : <div className="team-table-card"><div className="team-table-heading"><div><h2>Collaborateurs</h2><p>{activeCollaborators} accès actif{activeCollaborators > 1 ? "s" : ""} dans cette organisation.</p></div></div><div className="team-table"><div className="team-table-row team-table-header"><span>Collaborateur</span><span>Rôle</span><span>Dernière connexion</span><span>Statut</span><span>Action</span></div>{collaborators.map(member => <div className="team-table-row" key={member.id}><div className="team-member"><span>{member.fullname.slice(0, 2).toUpperCase()}</span><div><strong>{member.fullname}</strong><small>{member.identifiant}</small></div></div><span className="team-role">{roleLabels[member.role as ProfileRole]}</span><span className="team-last-login">{formatDate(member.last_login_at)}</span><span className={`team-status ${member.is_active ? "active" : "inactive"}`}>{member.is_active ? "Actif" : "Suspendu"}</span>{member.id === profile.id ? <span className="team-self-label">Votre compte</span> : <Link className="team-manage-link" href={`/dashboard/equipe/${member.id}`}><Settings2 size={15} /> Gérer</Link>}</div>)}</div></div>}
     </div>

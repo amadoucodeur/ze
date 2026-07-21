@@ -91,13 +91,18 @@ export async function loginAction(_state: AuthState, formData: FormData): Promis
   redirect(profile.must_change_password ? "/nouveau-mot-de-passe" : "/dashboard");
 }
 
-export async function googleSignupAction() {
+export async function googleSignupAction(formData: FormData) {
   const supabase = await createClient();
   const origin = await requestOrigin();
+  const plan = z.enum(["free", "essential", "team", "scale"]).safeParse(formData.get("plan"));
+  const cycle = formData.get("cycle") === "year" ? "year" : "month";
+  const next = plan.success && plan.data !== "free"
+    ? `/dashboard/organisation/nouvelle?plan=${plan.data}&cycle=${cycle}`
+    : "/dashboard/organisation/nouvelle";
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${origin}/auth/callback?next=/dashboard`,
+      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
       queryParams: { prompt: "select_account" },
     },
   });

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { calculateProfileQuality } from "@/lib/cv/quality";
 import {
   CV_EMBEDDING_CHUNK_LIMIT,
   CV_EMBEDDING_MODEL,
@@ -93,7 +94,7 @@ export async function parseCvWithMammouth(
     const payload = await mammouthRequest("/chat/completions", {
       model,
       temperature: 0,
-      max_tokens: 6_000,
+      max_tokens: 4_500,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -106,11 +107,11 @@ Utilise null si une valeur n’est pas explicitement disponible. Les dates doive
 Les niveaux de langue autorisés sont A1, A2, B1, B2, C1, C2, native.
 Les expertises autorisées sont Beginner, Junior, Intermediate, Advanced, Expert.
 Les types de formation autorisés sont degree, certification, training.
-Tous les scores sont des entiers de 0 à 100 et mesurent uniquement la solidité des éléments professionnels présents dans le document. Ils ne constituent jamais une décision de recrutement.
+Tous les scores sont des entiers de 0 à 100 et décrivent uniquement la qualité objective du document et des informations qu’il contient. Ils ne mesurent ni la valeur de la personne, ni son adéquation à un poste, ni une décision de recrutement.
 La disponibilité professionnelle autorisée est available, employed, open_to_opportunities, freelance, student, unavailable ou unknown. Utilise unknown lorsque le CV ne permet pas de conclure raisonnablement.
-Estime salaryValue comme la fourchette salariale indicative à laquelle le profil peut légitimement prétendre sur son marché, en tenant compte uniquement du métier, de l’expérience, des compétences, de la localisation et du secteur. N’utilise aucune donnée sensible. Utilise null si le marché ou la devise ne peuvent pas être établis avec une confiance suffisante.
+N’estime jamais de salaire, de rémunération attendue ou de valeur financière du candidat.
 issuerDate est la date d’obtention effective du diplôme, certificat ou formation. institutionName est le nom de l’établissement qui l’a délivré.
-Découpe uniquement les expériences, réalisations, projets, formations et certifications les plus utiles dans sections. Ne répète pas le résumé, les contacts, le salaire, les compétences ou les langues déjà présents dans leurs champs dédiés. Retourne au maximum 16 sections.
+Découpe uniquement les cinq expériences, réalisations, projets, formations ou certifications les plus probants dans sections. Privilégie les éléments concrets, datés et vérifiables. Ne répète pas le résumé, les contacts, le salaire, les compétences ou les langues déjà présents dans leurs champs dédiés. Retourne au maximum 5 sections.
 
 Schéma attendu :
 {
@@ -119,8 +120,7 @@ Schéma attendu :
   "localisation": string|null,
   "summary": string|null,
   "availability": "available"|"employed"|"open_to_opportunities"|"freelance"|"student"|"unavailable"|"unknown",
-  "salaryValue": {"from": number, "to": number, "currency": string, "period": "month"|"year", "confidence": number, "rationale": string, "marketBasis": string}|null,
-  "performance": {"overall": number, "completeness": number, "experience": number, "expertise": number, "education": number, "marketReadiness": number, "strengths": string[], "considerations": string[], "evidence": string[]},
+  "performance": {"overall": number, "contentQuality": number, "presentationQuality": number, "completeness": number, "clarity": number, "consistency": number, "evidenceQuality": number, "strengths": string[], "improvements": string[], "evidence": string[]},
   "contacts": {"email": string|null, "phone": string|null, "linkedin": string|null},
   "industries": string[],
   "pointsAttention": string[],
@@ -141,7 +141,8 @@ Schéma attendu :
       const response = chatResponseSchema.parse(payload);
       const parsed = parsedCvSchema.parse(extractJson(response.choices[0].message.content));
       options.onComplete?.({ durationMs: Date.now() - startedAt, attempts: attempt + 1, model: response.model || model });
-      return { ...parsed, fullname: parsed.fullname || fallbackName(item.sourceName, item.sourceType) };
+      const normalized = { ...parsed, fullname: parsed.fullname || fallbackName(item.sourceName, item.sourceType) };
+      return { ...normalized, performance: calculateProfileQuality(normalized, item.text) };
     } catch (error) {
       if (attempt === 0 && isStructureFailure(error)) {
         options.onRetry?.();
@@ -200,26 +201,39 @@ export function buildCandidateEmbeddingText(parsed: ParsedCv) {
 
 export function buildCandidateChunks(parsed: ParsedCv, rawText: string): CvEmbeddingChunk[] {
   const profileSummary = buildCandidateEmbeddingText(parsed);
-  const allRawChunks = splitCvIntoChunks(rawText);
-  const rawLimit = Math.max(8, CV_EMBEDDING_CHUNK_LIMIT - 17);
-  const sampledRawChunks = allRawChunks.length <= rawLimit
-    ? allRawChunks
-    : Array.from({ length: rawLimit }, (_, index) => allRawChunks[Math.round(index * (allRawChunks.length - 1) / (rawLimit - 1))]);
-  const rawChunks = sampledRawChunks.map((content) => ({
-    type: "document" as const,
-    content,
-  }));
+  const excludedTypes = new Set(["contact", "salary", "profile_summary", "professional_summary", "skill", "language", "industry", "document"]);
+  const typePriority: Partial<Record<CvEmbeddingChunk["type"], number>> = {
+    achievement: 100,
+    experience: 95,
+    project: 90,
+    responsibility: 85,
+    portfolio: 80,
+    certification: 75,
+    education: 70,
+    training: 65,
+    cover_letter: 50,
+    interview_note: 45,
+    other: 35,
+  };
   const usefulSections = parsed.sections
-    .filter((section) => !["contact", "salary", "profile_summary", "professional_summary", "skill", "language", "industry", "document"].includes(section.type))
-    .slice(0, 16);
-  const chunks: CvEmbeddingChunk[] = [
+    .filter((section) => !excludedTypes.has(section.type))
+    .sort((left, right) => (typePriority[right.type] || 0) - (typePriority[left.type] || 0));
+  const rawChunks = splitCvIntoChunks(rawText).map((content) => ({ type: "document" as const, content }));
+  const candidates: CvEmbeddingChunk[] = [
     ...(profileSummary ? [{ type: "profile_summary" as const, content: profileSummary }] : []),
     ...usefulSections,
-    ...rawChunks,
   ];
 
+  // Même lorsque les sections structurées occupent toute la capacité, une
+  // preuve issue du document original reste disponible pour expliquer le match.
+  if (rawChunks.length) {
+    const rawSlot = Math.max(0, CV_EMBEDDING_CHUNK_LIMIT - 1);
+    candidates.splice(rawSlot, 0, rawChunks[0]);
+  }
+  candidates.push(...rawChunks.slice(1));
+
   const unique = new Map<string, CvEmbeddingChunk>();
-  for (const chunk of chunks) {
+  for (const chunk of candidates) {
     const key = chunk.content.replace(/\s+/g, " ").trim().toLowerCase();
     if (!unique.has(key)) unique.set(key, chunk);
   }

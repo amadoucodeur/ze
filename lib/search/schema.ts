@@ -55,7 +55,6 @@ export type TalentSearchResult = {
   availability: string;
   relevanceScore: number;
   profileScore: number | null;
-  salaryValue: Record<string, unknown>;
   skills: Array<{ name: string; expertise: string | null; score: number | null }>;
   languages: Array<{ name: string; level: string | null }>;
   matches: string[];

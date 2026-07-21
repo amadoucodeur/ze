@@ -25,7 +25,6 @@ import {
   Trash2,
   TrendingUp,
   UserRound,
-  WalletCards,
   X,
 } from "lucide-react";
 import {
@@ -44,7 +43,6 @@ export type TalentProfileData = {
   localisation: string | null;
   summary: string | null;
   statut: string | null;
-  salaryValue: Record<string, unknown>;
   performanceScore: number | null;
   performance: Record<string, unknown>;
   archivedAt: string | null;
@@ -102,11 +100,12 @@ const expertiseLabels: Record<string, string> = {
 };
 
 const scoreLabels = [
-  ["completeness", "Complétude du profil"],
-  ["experience", "Expérience documentée"],
-  ["expertise", "Maîtrise des compétences"],
-  ["education", "Formation et certifications"],
-  ["marketReadiness", "Lisibilité sur le marché"],
+  ["contentQuality", "Qualité du contenu"],
+  ["presentationQuality", "Qualité de la forme"],
+  ["completeness", "Complétude"],
+  ["clarity", "Clarté"],
+  ["consistency", "Cohérence"],
+  ["evidenceQuality", "Éléments concrets"],
 ] as const;
 
 function initials(name: string) {
@@ -120,15 +119,6 @@ function scoreValue(value: unknown) {
 
 function stringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function formatSalary(value: Record<string, unknown>) {
-  const from = typeof value.from === "number" ? value.from : Number(value.from);
-  const to = typeof value.to === "number" ? value.to : Number(value.to);
-  const currency = typeof value.currency === "string" ? value.currency : "";
-  if (!Number.isFinite(from) || !Number.isFinite(to) || !currency) return null;
-  const formatter = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-  return `${formatter.format(from)} – ${formatter.format(to)} ${currency}`;
 }
 
 function ScoreBar({ label, value }: { label: string; value: number | null }) {
@@ -177,10 +167,8 @@ export function TalentProfile({
   const [indexError, setIndexError] = useState("");
   const status = availabilityLabels[candidate.statut || "unknown"] || "Disponibilité à confirmer";
   const overallScore = scoreValue(candidate.performanceScore ?? candidate.performance.overall);
-  const salary = formatSalary(candidate.salaryValue);
-  const salaryConfidence = scoreValue(candidate.salaryValue.confidence);
   const strengths = stringArray(candidate.performance.strengths);
-  const considerations = stringArray(candidate.performance.considerations);
+  const improvements = stringArray(candidate.performance.improvements);
   const evidence = stringArray(candidate.performance.evidence);
   const processingStatus = indexReady ? "ready" : candidate.processingStatus;
 
@@ -263,15 +251,14 @@ export function TalentProfile({
       </section>
 
       <section className="talent-performance-card" aria-labelledby="performance-title">
-        <div className="talent-performance-score"><span><Gauge size={20} /> Profil professionnel</span><strong>{overallScore === null ? "—" : overallScore}<small>{overallScore === null ? "" : "%"}</small></strong><p>Lecture des éléments documentés dans le CV, pas une décision de recrutement.</p></div>
+        <div className="talent-performance-score"><span><Gauge size={20} /> Qualité du profil</span><strong>{overallScore === null ? "—" : overallScore}<small>{overallScore === null ? "" : "%"}</small></strong><p>Qualité objective du fond et de la forme du CV. Ce score ne mesure pas la valeur du candidat.</p></div>
         <div className="talent-performance-bars"><h2 id="performance-title">Détail de l’analyse</h2>{scoreLabels.map(([key, label]) => <ScoreBar key={key} label={label} value={scoreValue(candidate.performance[key])} />)}</div>
-        <div className="talent-salary-card"><span><WalletCards size={19} /> Fourchette indicative</span>{salary ? <><strong>{salary}</strong><small>par {candidate.salaryValue.period === "year" ? "an" : "mois"}{salaryConfidence === null ? "" : ` · confiance ${salaryConfidence}%`}</small><p>{typeof candidate.salaryValue.rationale === "string" ? candidate.salaryValue.rationale : "Estimation fondée sur les éléments professionnels disponibles."}</p></> : <><strong>À estimer</strong><p>Le CV ne fournit pas encore assez de contexte marché.</p></>}</div>
       </section>
 
       <div className="talent-profile-layout">
         <main className="talent-profile-main">
           <section className="talent-profile-section"><div className="talent-profile-section-heading"><FileText size={19} /><h2>À propos</h2></div><p className={candidate.summary ? "" : "is-empty"}>{candidate.summary || "Aucun résumé pour le moment. Modifiez le profil pour ajouter les informations importantes."}</p></section>
-          {(strengths.length > 0 || evidence.length > 0 || considerations.length > 0) && <section className="talent-profile-section talent-insights-section"><div className="talent-profile-section-heading"><TrendingUp size={19} /><h2>Lecture du profil</h2></div><div className="talent-insight-columns">{strengths.length > 0 && <div><h3>Points forts documentés</h3><ul>{strengths.map((item) => <li key={item}><Check size={15} />{item}</li>)}</ul></div>}{evidence.length > 0 && <div><h3>Éléments probants</h3><ul>{evidence.map((item) => <li key={item}><ShieldCheck size={15} />{item}</li>)}</ul></div>}{considerations.length > 0 && <div><h3>À approfondir</h3><ul>{considerations.map((item) => <li key={item}><AlertCircle size={15} />{item}</li>)}</ul></div>}</div></section>}
+          {(strengths.length > 0 || evidence.length > 0 || improvements.length > 0) && <section className="talent-profile-section talent-insights-section"><div className="talent-profile-section-heading"><TrendingUp size={19} /><h2>Qualité du document</h2></div><div className="talent-insight-columns">{strengths.length > 0 && <div><h3>Points forts du CV</h3><ul>{strengths.map((item) => <li key={item}><Check size={15} />{item}</li>)}</ul></div>}{evidence.length > 0 && <div><h3>Éléments concrets</h3><ul>{evidence.map((item) => <li key={item}><ShieldCheck size={15} />{item}</li>)}</ul></div>}{improvements.length > 0 && <div><h3>Améliorations possibles</h3><ul>{improvements.map((item) => <li key={item}><AlertCircle size={15} />{item}</li>)}</ul></div>}</div></section>}
           <section className="talent-profile-section"><div className="talent-profile-section-heading"><Sparkles size={19} /><h2>Compétences</h2><span>{candidate.skills.length}</span></div>{candidate.skills.length ? <><div className="talent-skill-grid">{candidate.skills.slice(0, 12).map((skill) => <article key={skill.id}><div><strong>{skill.name}</strong>{scoreValue(skill.score) !== null && <b>{scoreValue(skill.score)}%</b>}</div><span>{skill.expertise ? expertiseLabels[skill.expertise] || skill.expertise : "Niveau à confirmer"}{skill.importance ? ` · ${skill.importance}` : ""}</span>{scoreValue(skill.score) !== null && <div className="talent-mini-score"><span style={{ width: `${scoreValue(skill.score)}%` }} /></div>}{skill.industry && <small>{skill.industry}</small>}</article>)}</div>{candidate.skills.length > 12 && <details className="talent-more-skills"><summary>Voir les {candidate.skills.length - 12} autres compétences</summary><div className="talent-tag-list">{candidate.skills.slice(12).map((skill) => <span key={skill.id}>{skill.name}</span>)}</div></details>}</> : <p className="is-empty">Aucune compétence renseignée.</p>}</section>
           {candidate.formations.length > 0 && <section className="talent-profile-section"><div className="talent-profile-section-heading"><BriefcaseBusiness size={19} /><h2>Formations</h2></div><div className="talent-timeline">{candidate.formations.map((formation) => <article key={formation.id}><span /><div><strong>{formation.name}</strong>{formation.institutionName && <p className="talent-institution">{formation.institutionName}</p>}<p>{formation.fieldOfStudy || formation.description || "Détail à compléter"}</p>{(formation.issuerDate || formation.startDate || formation.endDate || formation.address) && <small>{[formation.issuerDate ? `Obtenu le ${formation.issuerDate}` : null, formation.startDate, formation.endDate, formation.address].filter(Boolean).join(" · ")}</small>}</div></article>)}</div></section>}
         </main>

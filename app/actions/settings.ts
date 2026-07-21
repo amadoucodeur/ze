@@ -65,7 +65,6 @@ export async function updateProfileAction(
   });
 
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
-
   const admin = createAdminClient();
   const { error } = await admin
     .from("profiles")
@@ -101,6 +100,9 @@ export async function createOrganisationAction(
   });
 
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+  const selectedPlan = formData.get("selectedPlan");
+  const selectedCycle = formData.get("selectedCycle") === "year" ? "year" : "month";
+  const billingPlan = selectedPlan === "essential" || selectedPlan === "team" ? selectedPlan : null;
 
   const admin = createAdminClient();
   const { data: organisation, error } = await admin
@@ -148,7 +150,7 @@ export async function createOrganisationAction(
   }
 
   revalidatePath("/dashboard", "layout");
-  redirect("/dashboard?organisation=created");
+  redirect(billingPlan ? `/dashboard/abonnement?plan=${billingPlan}&cycle=${selectedCycle}` : "/dashboard?organisation=created");
 }
 
 export async function updateOrganisationAction(

@@ -42,7 +42,7 @@ export default async function TalentPage({ params, searchParams }: TalentPagePro
   const admin = createAdminClient();
   const { data: candidate } = await admin
     .from("candidats")
-    .select("id, fullname, poste_type, localisation, summary, statut, source, contacts, industries, weakness, salary_value, performance_score, performance, archived_at, created_by, created_at, skills(id, name, importance, expertise, source, score, nb_month_of_experiance, industry), languages(id, name, level), formations(id, name, institution_name, issuer_date, type, field_of_study, adresse, description, start_date, end_date, confidence_score)")
+    .select("id, fullname, poste_type, localisation, summary, statut, source, contacts, industries, weakness, performance_score, performance, archived_at, created_by, created_at, skills(id, name, importance, expertise, source, score, nb_month_of_experiance, industry), languages(id, name, level), formations(id, name, institution_name, issuer_date, type, field_of_study, adresse, description, start_date, end_date, confidence_score)")
     .eq("id", id)
     .eq("organisation_id", profile.organisation_id)
     .maybeSingle();
@@ -71,7 +71,6 @@ export default async function TalentPage({ params, searchParams }: TalentPagePro
     localisation: candidate.localisation,
     summary: candidate.summary,
     statut: candidate.statut,
-    salaryValue: jsonRecord(candidate.salary_value),
     performanceScore: candidate.performance_score,
     performance: jsonRecord(candidate.performance),
     archivedAt: candidate.archived_at,

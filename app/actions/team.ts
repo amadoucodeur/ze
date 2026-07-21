@@ -6,6 +6,8 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 import { composeAuthEmail, composeLoginIdentifier, USER_IDENTIFIER_PATTERN } from "@/lib/identifiers";
+import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
+import { getSeatCapacity } from "@/lib/billing/entitlements";
 
 export type CollaboratorState = {
   message?: string;
@@ -94,6 +96,14 @@ export async function createCollaboratorAction(
   const admin = createAdminClient();
   const organisation = manager.organisation;
   if (!organisation) redirect("/dashboard/organisation/nouvelle");
+  if (!hasActivePlanAccess(organisation)) {
+    return { message: "La période d’accès de l’organisation est terminée. Le propriétaire doit renouveler le plan avant d’ajouter un collaborateur." };
+  }
+  const plan = getPlan(organisation.plan);
+  const { count: activeSeatCount } = await admin.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", manager.organisation_id).eq("is_active", true);
+  if (plan.seatLimit !== null && (activeSeatCount ?? 0) >= plan.seatLimit) {
+    return { message: `Le plan ${plan.name} inclut ${plan.seatLimit} utilisateur${plan.seatLimit > 1 ? "s" : ""}. Le propriétaire peut choisir un plan supérieur depuis la facturation.` };
+  }
   const loginIdentifier = composeLoginIdentifier(parsed.data.identifiant, organisation.identifiant);
   const [{ data: identifierExists }, { data: emailExists }] = await Promise.all([
     admin.from("profiles").select("id").eq("identifiant", loginIdentifier).maybeSingle(),
@@ -168,6 +178,10 @@ export async function setCollaboratorStatusAction(targetId: string, active: bool
   const manager = await managerWithOrganisation();
   const parsedTargetId = z.string().uuid().safeParse(targetId);
   if (!parsedTargetId.success) return;
+  if (active && manager.organisation) {
+    const capacity = await getSeatCapacity(manager.organisation);
+    if (!capacity.allowed) redirect(`/dashboard/equipe/${targetId}?statusError=${capacity.reason === "inactive" ? "inactive-plan" : "seat-limit"}`);
+  }
 
   const admin = createAdminClient();
   const { data: target } = await admin
@@ -182,7 +196,7 @@ export async function setCollaboratorStatusAction(targetId: string, active: bool
   const { error: authError } = await admin.auth.admin.updateUserById(target.id, {
     ban_duration: active ? "none" : "876000h",
   });
-  if (authError) return;
+  if (authError) redirect(`/dashboard/equipe/${target.id}?statusError=update`);
 
   const { error: profileError } = await admin
     .from("profiles")
@@ -194,11 +208,12 @@ export async function setCollaboratorStatusAction(targetId: string, active: bool
     await admin.auth.admin.updateUserById(target.id, {
       ban_duration: active ? "876000h" : "none",
     });
-    return;
+    redirect(`/dashboard/equipe/${target.id}?statusError=${profileError.message.includes("plan_seat_limit_reached") ? "seat-limit" : "update"}`);
   }
 
   revalidatePath("/dashboard/equipe");
   revalidatePath(`/dashboard/equipe/${target.id}`);
+  redirect(`/dashboard/equipe/${target.id}?status=${active ? "reactivated" : "suspended"}`);
 }
 
 export async function updateCollaboratorAction(

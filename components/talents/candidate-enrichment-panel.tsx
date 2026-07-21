@@ -18,7 +18,6 @@ import {
   CV_ENRICHMENT_FILE_LIMIT,
   CV_ENRICHMENT_TEXT_MIN_LENGTH,
   CV_ENRICHMENT_TEXT_MAX_LENGTH,
-  type CandidateEnrichmentProgressEvent,
   type CvImportItem,
   type CvProcessingMetrics,
 } from "@/lib/cv/schema";
@@ -28,6 +27,8 @@ type StagedDocument = Partial<CvImportItem> & {
   sourceName: string;
   status: "extracting" | "ready" | "error";
   error?: string;
+  extractionMessage?: string;
+  ocrUsed?: boolean;
 };
 
 type EnrichmentStage = "idle" | "parsing" | "embedding" | "saving" | "complete" | "error";
@@ -41,27 +42,18 @@ const stageLabels: Record<EnrichmentStage, string> = {
   error: "À reprendre",
 };
 
-async function readProgressStream(
-  response: Response,
-  onEvent: (event: CandidateEnrichmentProgressEvent) => void,
-) {
-  if (!response.body) throw new Error("Le suivi de l’analyse n’est pas disponible. Réessayez.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+type EnrichmentJob = {
+  id: string;
+  status: "queued" | "processing" | "retry_wait" | "completed" | "failed" | "cancelled";
+  progress_step: "queued" | "parsing" | "embedding" | "saving" | "completed" | "retry_wait" | "failed";
+  progress_message: string;
+  attempt_count: number;
+  max_attempts: number;
+  last_error?: string | null;
+  result: Record<string, unknown>;
+};
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const line of lines) {
-      if (line.trim()) onEvent(JSON.parse(line) as CandidateEnrichmentProgressEvent);
-    }
-    if (done) break;
-  }
-  if (buffer.trim()) onEvent(JSON.parse(buffer) as CandidateEnrichmentProgressEvent);
-}
+const wait = (duration: number) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
 export function CandidateEnrichmentPanel({
   candidateId,
@@ -115,7 +107,7 @@ export function CandidateEnrichmentPanel({
     await Promise.all(selected.map(async (file, index) => {
       const clientId = pending[index].clientId;
       try {
-        const extracted = await extractCvFile(file);
+        const extracted = await extractCvFile(file, (progress) => setDocuments((current) => current.map((document) => document.clientId === clientId ? { ...document, extractionMessage: progress.message } : document)));
         setDocuments((current) => current.map((document) => document.clientId === clientId
           ? { ...document, ...extracted, status: "ready" }
           : document));
@@ -160,7 +152,9 @@ export function CandidateEnrichmentPanel({
     setSubmitting(true);
     setElapsedSeconds(0);
     setStage("parsing");
-    setStageMessage("Lecture des nouvelles informations…");
+    setStageMessage("Placement dans la file d’analyse…");
+    const startedAt = Date.now();
+    let accepted = false;
     try {
       const response = await fetch(`/api/talents/${candidateId}/enrich`, {
         method: "POST",
@@ -179,48 +173,50 @@ export function CandidateEnrichmentPanel({
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(payload.message || "L’actualisation n’a pas pu démarrer.");
       }
-
-      let completed = false;
-      let streamError = "";
-      const processingMetrics: { current?: CvProcessingMetrics } = {};
-      await readProgressStream(response, (event) => {
-        if (event.type === "stage") {
-          setStage(event.stage);
-          setStageMessage(event.message);
-        } else if (event.type === "heartbeat") {
-          setElapsedSeconds(event.elapsedSeconds);
-        } else if (event.type === "complete") {
-          completed = true;
-          processingMetrics.current = event.metrics;
-          setStage("complete");
-          setStageMessage(`Le profil de ${event.fullname} est à jour.`);
-        } else if (event.type === "error") {
-          streamError = event.message;
-          setStage("error");
-          setStageMessage(event.message);
+      const payload = await response.json() as { job: EnrichmentJob };
+      if (!payload.job?.id) throw new Error("La file d’analyse n’a pas confirmé l’actualisation.");
+      accepted = true;
+      let job = payload.job;
+      let trackingErrors = 0;
+      while (!["completed", "failed", "cancelled"].includes(job.status)) {
+        const nextStage: EnrichmentStage = job.progress_step === "embedding" ? "embedding" : job.progress_step === "saving" ? "saving" : "parsing";
+        setStage(nextStage);
+        setStageMessage(job.status === "retry_wait" ? `${job.progress_message} Tentative ${job.attempt_count + 1} sur ${job.max_attempts}.` : job.progress_message);
+        setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+        await wait(2_500);
+        try {
+          const trackingResponse = await fetch(`/api/talents/import/jobs?ids=${job.id}`, { cache: "no-store" });
+          if (!trackingResponse.ok) throw new Error("Suivi indisponible");
+          const tracking = await trackingResponse.json() as { jobs: EnrichmentJob[] };
+          if (tracking.jobs[0]) job = tracking.jobs[0];
+          trackingErrors = 0;
+        } catch {
+          trackingErrors += 1;
+          if (trackingErrors >= 5) throw new Error("L’actualisation continue en arrière-plan. Vous pouvez fermer cette page et revenir sur le profil plus tard.");
         }
-      });
-
-      if (streamError) throw new Error(streamError);
-      if (!completed) throw new Error("Le suivi s’est interrompu. Vos informations sont conservées : relancez l’actualisation.");
+      }
+      if (job.status !== "completed") throw new Error(job.last_error || "Le profil n’a pas pu être actualisé après plusieurs tentatives.");
+      const metrics = (job.result.metrics || {}) as CvProcessingMetrics;
+      setStage("complete");
+      setStageMessage(`Le profil de ${String(job.result.fullname || candidateName)} est à jour.`);
       void trackProductEvent("candidate_enrichment_completed", {
         candidate_id: candidateId,
         document_count: readyDocuments.length,
         has_manual_text: manualText.trim().length > 0,
-        duration_ms: elapsedSeconds * 1000,
-        parser_ms: processingMetrics.current?.parserDurationMs || 0,
-        parser_retry_count: Math.max(0, (processingMetrics.current?.parserAttempts || 1) - 1),
-        embedding_ms: processingMetrics.current?.embeddingDurationMs || 0,
-        saving_ms: processingMetrics.current?.savingDurationMs || 0,
-        input_characters: processingMetrics.current?.inputCharacters || totalLength,
-        chunk_count: processingMetrics.current?.chunkCount || 0,
+        duration_ms: Date.now() - startedAt,
+        parser_ms: metrics.parserDurationMs || 0,
+        parser_retry_count: Math.max(0, (metrics.parserAttempts || 1) - 1),
+        embedding_ms: metrics.embeddingDurationMs || 0,
+        saving_ms: metrics.savingDurationMs || 0,
+        input_characters: metrics.inputCharacters || totalLength,
+        chunk_count: metrics.chunkCount || 0,
       });
       setDocuments([]);
       setManualText("");
       onComplete();
     } catch (error) {
       const text = error instanceof Error ? error.message : "Le profil n’a pas pu être actualisé. Réessayez.";
-      setStage("error");
+      setStage(accepted && text.includes("continue en arrière-plan") ? "parsing" : "error");
       setStageMessage(text);
       setMessage(text);
     } finally {
@@ -274,7 +270,7 @@ export function CandidateEnrichmentPanel({
             aria-hidden="true"
           />
           <span className="candidate-enrichment-file-icon" aria-hidden="true"><FilePlus2 size={22} /></span>
-          <div><strong>Ajouter des documents</strong><p>PDF, DOCX, TXT ou MD · jusqu’à 5 fichiers</p></div>
+          <div><strong>Ajouter des documents</strong><p>PDF, image, DOCX, TXT ou MD · jusqu’à 5 fichiers</p></div>
           <button className="button button-secondary" type="button" disabled={submitting || documents.length >= CV_ENRICHMENT_FILE_LIMIT} onClick={() => fileInputRef.current?.click()}>
             Choisir
           </button>
@@ -285,7 +281,7 @@ export function CandidateEnrichmentPanel({
             {documents.map((document) => (
               <article className={`candidate-enrichment-file is-${document.status}`} key={document.clientId}>
                 <span aria-hidden="true">{document.status === "extracting" ? <LoaderCircle className="spin" size={18} /> : document.status === "ready" ? <FileCheck2 size={18} /> : <AlertCircle size={18} />}</span>
-                <div><strong>{document.sourceName}</strong><small>{document.status === "extracting" ? "Lecture du document…" : document.status === "ready" ? "Prêt à analyser" : document.error}</small></div>
+                <div><strong>{document.sourceName}</strong><small>{document.status === "extracting" ? document.extractionMessage || "Lecture du document…" : document.status === "ready" ? document.ocrUsed ? "Texte reconnu · prêt à analyser" : "Prêt à analyser" : document.error}</small></div>
                 <button type="button" disabled={submitting} aria-label={`Retirer ${document.sourceName}`} onClick={() => setDocuments((current) => current.filter((item) => item.clientId !== document.clientId))}><Trash2 size={17} /></button>
               </article>
             ))}

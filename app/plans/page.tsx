@@ -10,13 +10,15 @@ export const metadata: Metadata = {
 };
 
 const comparisonRows = [
-  ["Période d’accès", "1 mois", "Abonnement", "Abonnement", "Sur mesure"],
+  ["Période d’accès", "30 jours", "Mensuelle ou annuelle", "Mensuelle ou annuelle", "Sur mesure"],
   ["Utilisateurs inclus", "1", "1", "8", "Sur mesure"],
   ["Profils dans le vivier", "100", "1 000", "10 000", "Sur mesure"],
-  ["Nouveaux CV par mois", "Inclus", "100", "500", "Sur mesure"],
+  ["Offres et pipelines", "1 recrutement", "Illimités", "Illimités", "Sur mesure"],
   ["Recherche intelligente", true, true, true, true],
-  ["Matching candidat–offre", "3 / mois", true, true, true],
+  ["Matching candidat–offre", "3 essais", true, true, true],
+  ["Collections de profils", "—", true, true, true],
   ["Rôles et accès d’équipe", "—", "—", true, true],
+  ["Guides d’entretien", "—", true, true, true],
   ["Support prioritaire", "—", "—", true, true],
   ["Paramétrage accompagné", "—", "—", "—", true],
 ] as const;
@@ -54,13 +56,13 @@ export default function PlansPage() {
       <section className="plans-hero" id="main-content">
         <div className="plans-hero-glow" />
         <div className="container plans-hero-copy">
-          <div className="eyebrow"><Sparkles size={15} /> Des plans pensés pour recruter, pas pour vous limiter</div>
-          <h1>Un prix clair.<br /><em>Un vivier qui prend de la valeur.</em></h1>
-          <p>Commencez simplement, invitez votre équipe et évoluez quand votre volume de recrutement l’exige.</p>
+          <div className="eyebrow"><Sparkles size={15} /> Le bon niveau d’accompagnement à chaque étape</div>
+          <h1>Payez pour mieux recruter.<br /><em>Pas pour accumuler des fonctions.</em></h1>
+          <p>Choisissez selon votre façon de recruter : seul, en équipe ou à grande échelle. Chaque plan garde le même parcours simple.</p>
           <div className="plans-trust-row">
-            <span><Check size={16} /> 1 mois offert pour découvrir</span>
-            <span><Check size={16} /> Sans carte bancaire</span>
-            <span><Check size={16} /> Changement de plan flexible</span>
+            <span><Check size={16} /> Tarifs en FCFA, clairement affichés</span>
+            <span><Check size={16} /> Paiement sécurisé avec PayDunya</span>
+            <span><Check size={16} /> Renouvellement à votre rythme</span>
           </div>
         </div>
       </section>
@@ -83,7 +85,7 @@ export default function PlansPage() {
 
       <section className="plan-comparison-section">
         <div className="container">
-          <div className="section-heading centered-heading"><span className="section-kicker">Comparer les plans</span><h2>Choisissez selon votre rythme de recrutement.</h2><p>Les limites restent simples et visibles. Vous savez toujours ce qui est inclus.</p></div>
+          <div className="section-heading centered-heading"><span className="section-kicker">Comparer les plans</span><h2>La différence se voit dans votre organisation.</h2><p>Essentiel convient à un recruteur autonome. Équipe ajoute la collaboration, les rôles et la capacité de décider ensemble.</p></div>
           <div className="comparison-table-wrap">
             <table className="comparison-table">
               <thead><tr><th scope="col">Fonctionnalité</th><th scope="col">Free</th><th scope="col">Essentiel</th><th scope="col" className="comparison-highlight">Équipe <span>Recommandé</span></th><th scope="col">Scale</th></tr></thead>
@@ -97,9 +99,10 @@ export default function PlansPage() {
         <div className="container faq-grid">
           <div className="section-heading left-heading"><span className="section-kicker">Questions sur les plans</span><h2>Pas de petite ligne cachée.</h2><p>Vous gardez une vision claire de votre abonnement et de vos volumes.</p></div>
           <div className="faq-list">
-            <details open><summary>Puis-je utiliser ZeRecruit gratuitement ? <span>+</span></summary><p>Oui. Le plan Free vous donne un mois d’accès sans carte bancaire, dans la limite des volumes inclus. Vous choisissez ensuite le plan qui vous convient.</p></details>
-            <details><summary>Que se passe-t-il si j’atteins ma limite de CV ? <span>+</span></summary><p>Vos profils existants restent accessibles. Vous pouvez passer au plan supérieur avant d’ajouter de nouveaux documents.</p></details>
-            <details><summary>Puis-je changer de plan plus tard ? <span>+</span></summary><p>Oui. Votre plan peut évoluer avec votre équipe et votre volume de recrutement.</p></details>
+            <details open><summary>Comment fonctionne le plan Free ? <span>+</span></summary><p>Free ouvre ZeRecruit pendant 30 jours pour un utilisateur. Vous pouvez créer un premier recrutement, importer vos profils et tester le matching dans les limites affichées.</p></details>
+            <details><summary>Que se passe-t-il à la fin de mon accès ? <span>+</span></summary><p>Vos données restent conservées. Les opérations qui consomment de nouvelles ressources sont suspendues jusqu’au renouvellement du plan.</p></details>
+            <details><summary>Puis-je payer pour une année ? <span>+</span></summary><p>Oui. Le paiement annuel couvre douze mois au prix de dix. La nouvelle période est ajoutée à la durée restante si vous renouvelez en avance.</p></details>
+            <details><summary>Comment le paiement est-il sécurisé ? <span>+</span></summary><p>Le règlement est effectué sur la page PayDunya. ZeRecruit active le plan uniquement après une confirmation signée et une vérification directe de la transaction.</p></details>
             <details><summary>Le prix est-il par utilisateur ? <span>+</span></summary><p>Non. Chaque plan inclut un nombre d’utilisateurs pour toute l’organisation, afin de garder un coût prévisible.</p></details>
           </div>
         </div>

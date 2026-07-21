@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Building2, LockKeyhole, UserPlus } from "lucide-react";
 import { CollaboratorForm } from "@/components/team/collaborator-form";
+import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
+import { getSeatCapacity } from "@/lib/billing/entitlements";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 
 export const metadata: Metadata = { title: "Ajouter un collaborateur" };
@@ -12,6 +14,8 @@ export default async function NewCollaboratorPage() {
   if (!profile) redirect("/connexion");
   if (profile.role !== "owner" && profile.role !== "admin") redirect("/dashboard");
   if (!profile.organisation_id || !profile.organisation) redirect(profile.role === "owner" ? "/dashboard/organisation/nouvelle" : "/dashboard");
+  const plan = getPlan(profile.organisation.plan);
+  if (!hasActivePlanAccess(profile.organisation) || !plan.teamManagementEnabled || !(await getSeatCapacity(profile.organisation)).allowed) redirect("/dashboard/equipe?limit=seats");
 
   return (
     <div className="dashboard-settings-page new-collaborator-page">

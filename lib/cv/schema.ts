@@ -8,8 +8,8 @@ export const CV_TEXT_MIN_LENGTH = 40;
 export const CV_TEXT_MAX_LENGTH = 60_000;
 export const CV_FILE_MAX_SIZE = 10 * 1024 * 1024;
 export const CV_EMBEDDING_MODEL = "text-embedding-3-small";
-export const CV_ANALYSIS_VERSION = "2026-07-fast-v1";
-export const CV_EMBEDDING_CHUNK_LIMIT = 32;
+export const CV_ANALYSIS_VERSION = "2026-07-strong-6-v1";
+export const CV_EMBEDDING_CHUNK_LIMIT = 6;
 
 export const candidateAvailabilityValues = [
   "available",
@@ -46,7 +46,7 @@ export const chunkTypeValues = [
 export const cvImportItemSchema = z.object({
   clientId: z.string().trim().min(1).max(100),
   sourceName: z.string().trim().min(1).max(240),
-  sourceType: z.enum(["pdf", "docx", "text", "manual"]),
+  sourceType: z.enum(["pdf", "image", "docx", "text", "manual"]),
   text: z
     .string()
     .trim()
@@ -80,6 +80,8 @@ export const candidateEnrichmentRequestSchema = z
     }
   });
 
+export type CandidateEnrichmentInput = z.infer<typeof candidateEnrichmentRequestSchema>;
+
 const optionalText = z.string().trim().max(2_000).optional().nullable();
 const score = z.coerce.number().min(0).max(100).transform(Math.round);
 
@@ -89,29 +91,16 @@ export const parsedCvSchema = z.object({
   localisation: z.string().trim().max(120).optional().nullable(),
   summary: z.string().trim().max(2_000).optional().nullable(),
   availability: z.enum(candidateAvailabilityValues).optional().default("unknown"),
-  salaryValue: z
-    .object({
-      from: z.coerce.number().min(0),
-      to: z.coerce.number().min(0),
-      currency: z.string().trim().min(3).max(8),
-      period: z.enum(["month", "year"]),
-      confidence: score,
-      rationale: z.string().trim().min(1).max(500),
-      marketBasis: z.string().trim().min(1).max(240),
-    })
-    .refine((value) => value.to >= value.from, { message: "La borne haute doit être supérieure à la borne basse." })
-    .optional()
-    .nullable()
-    .default(null),
   performance: z.object({
     overall: score,
+    contentQuality: score,
+    presentationQuality: score,
     completeness: score,
-    experience: score,
-    expertise: score,
-    education: score,
-    marketReadiness: score,
+    clarity: score,
+    consistency: score,
+    evidenceQuality: score,
     strengths: z.array(z.string().trim().min(1).max(240)).max(6).default([]),
-    considerations: z.array(z.string().trim().min(1).max(240)).max(6).default([]),
+    improvements: z.array(z.string().trim().min(1).max(240)).max(6).default([]),
     evidence: z.array(z.string().trim().min(1).max(240)).max(8).default([]),
   }),
   contacts: z

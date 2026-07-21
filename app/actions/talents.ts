@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
+import { getCandidateCapacity } from "@/lib/billing/entitlements";
 
 export type TalentState = {
   message?: string;
@@ -43,6 +44,9 @@ export async function createTalentAction(_state: TalentState, formData: FormData
   if (!profile) redirect("/connexion");
   if (!profile.organisation_id) return { message: "Votre organisation doit être configurée avant d’ajouter un talent." };
   if (profile.role === "viewer") return { message: "Votre rôle permet de consulter les talents, mais pas d’en créer." };
+  if (!profile.organisation) return { message: "Votre organisation doit être configurée avant d’ajouter un talent." };
+  const capacity = await getCandidateCapacity(profile.organisation);
+  if (!capacity.allowed) return { message: capacity.reason === "inactive" ? "La période d’accès est terminée. Renouvelez le plan avant d’ajouter un talent." : `Votre vivier a atteint la capacité de ${capacity.limit?.toLocaleString("fr-FR")} profils. Choisissez un plan supérieur pour continuer.` };
 
   const parsed = talentSchema.safeParse({
     fullname: formData.get("fullname"),

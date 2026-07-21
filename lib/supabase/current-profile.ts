@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { createAdminClient } from "./admin";
 import { createClient } from "./server";
 
@@ -15,6 +16,11 @@ export type CurrentOrganisation = {
   description: string | null;
   logo_url: string | null;
   plan: string;
+  trial_ends_at: string | null;
+  plan_expires_at: string | null;
+  billing_status: "trialing" | "active" | "past_due" | "expired" | "suspended" | null;
+  billing_cycle: "trial" | "month" | "year" | null;
+  plan_updated_at: string | null;
   status: "active" | "suspended" | "archived";
   settings: Record<string, unknown> | null;
 };
@@ -32,7 +38,7 @@ export type CurrentProfile = {
   organisation: CurrentOrganisation | null;
 };
 
-export async function getCurrentProfile(): Promise<CurrentProfile | null> {
+export const getCurrentProfile = cache(async (): Promise<CurrentProfile | null> => {
   const supabase = await createClient();
   const { data: claimsData } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
@@ -51,7 +57,7 @@ export async function getCurrentProfile(): Promise<CurrentProfile | null> {
   if (profile.organisation_id) {
     const { data } = await admin
       .from("organisations")
-      .select("id, name, identifiant, email, phone, website_url, description, logo_url, plan, status, settings")
+      .select("id, name, identifiant, email, phone, website_url, description, logo_url, plan, trial_ends_at, plan_expires_at, billing_status, billing_cycle, plan_updated_at, status, settings")
       .eq("id", profile.organisation_id)
       .maybeSingle();
     organisation = data as CurrentOrganisation | null;
@@ -62,4 +68,4 @@ export async function getCurrentProfile(): Promise<CurrentProfile | null> {
     role: profile.role as ProfileRole,
     organisation,
   };
-}
+});

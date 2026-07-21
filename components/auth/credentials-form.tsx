@@ -21,7 +21,9 @@ function GoogleButton() {
   );
 }
 
-export function UnifiedAuthForm() {
+const planLabels: Record<string, string> = { free: "Free", essential: "Essentiel", team: "Équipe", scale: "Scale" };
+
+export function UnifiedAuthForm({ selectedPlan, selectedCycle = "month" }: { selectedPlan?: string | null; selectedCycle?: string }) {
   const [state, formAction, pending] = useActionState(loginAction, initialState);
 
   return (
@@ -34,7 +36,8 @@ export function UnifiedAuthForm() {
 
       <section className="auth-choice-card auth-owner-choice" aria-labelledby="owner-access-title">
         <div className="auth-choice-heading"><span><Building2 size={18} /></span><div><small>Pour le propriétaire</small><h3 id="owner-access-title">Je gère mon organisation</h3><p>Vous avez créé ZeRecruit pour votre entreprise ou souhaitez créer son espace.</p></div></div>
-        <form action={googleSignupAction} className="unified-google-form"><GoogleButton /></form>
+        {selectedPlan && <div className="auth-plan-intent"><strong>Plan choisi : {planLabels[selectedPlan] || selectedPlan}</strong><span>Vous créerez d’abord votre organisation, puis confirmerez ce choix.</span></div>}
+        <form action={googleSignupAction} className="unified-google-form"><input type="hidden" name="plan" value={selectedPlan || ""} /><input type="hidden" name="cycle" value={selectedCycle} /><GoogleButton /></form>
       </section>
 
       <div className="auth-divider"><span>ou</span></div>
