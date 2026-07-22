@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bodoni_Moda, DM_Sans, Manrope } from "next/font/google";
+import { DM_Sans, Manrope } from "next/font/google";
 import "@ze/ui-foundations/brands.css";
 import "./globals.css";
 
@@ -11,12 +11,6 @@ const displayFont = Manrope({
 const bodyFont = DM_Sans({
   variable: "--font-body",
   subsets: ["latin"],
-});
-
-const editorialFont = Bodoni_Moda({
-  variable: "--font-editorial",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -37,7 +31,7 @@ export const metadata: Metadata = {
       {
         url: "/og.png",
         width: 1727,
-        height: 910,
+        height: 911,
         alt: "ZeSuite — Tous vos outils, un seul compte",
       },
     ],
@@ -57,7 +51,7 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
-      className={`${displayFont.variable} ${bodyFont.variable} ${editorialFont.variable}`}
+      className={`${displayFont.variable} ${bodyFont.variable}`}
       data-scroll-behavior="smooth"
     >
       <body>{children}</body>

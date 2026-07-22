@@ -16,9 +16,9 @@ export function ZeSuiteLogo({ compact = false, inverse = false, className }: Bra
       aria-label="ZeSuite"
     >
       <span className="ze-suite-mark" aria-hidden="true">
-        <span className="ze-suite-monogram-z">Z</span>
-        <span className="ze-suite-monogram-s">S</span>
-        <span className="ze-suite-monogram-link" />
+        <span className="ze-suite-layer ze-suite-layer-back" />
+        <span className="ze-suite-layer ze-suite-layer-middle" />
+        <span className="ze-suite-layer ze-suite-layer-front" />
       </span>
       {!compact && <span className="ze-brand-word"><b>Ze</b><span>Suite</span></span>}
     </span>
