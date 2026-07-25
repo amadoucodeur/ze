@@ -1,0 +1,104 @@
+"use client";
+
+import { useActionState } from "react";
+import { ArrowRight, LoaderCircle, UserRound } from "lucide-react";
+import {
+  requestPasswordResetAction,
+  updatePasswordAction,
+  type AuthState,
+} from "@/app/actions/auth";
+import { PasswordInput } from "./password-input";
+
+const initialState: AuthState = {};
+
+export function ResetRequestForm() {
+  const [state, action, pending] = useActionState(
+    requestPasswordResetAction,
+    initialState,
+  );
+
+  return (
+    <>
+      <div className="auth-form-heading">
+        <span>Récupération sécurisée</span>
+        <h2>Mot de passe oublié ?</h2>
+        <p>Votre organisation gère votre accès ZeSuite.</p>
+      </div>
+      <form action={action} className="auth-form">
+        <div className="auth-field">
+          <label htmlFor="reset-identifiant">Identifiant complet</label>
+          <div className="auth-input-wrap">
+            <UserRound size={18} aria-hidden="true" />
+            <input
+              id="reset-identifiant"
+              name="identifiant"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="amadou@trabad"
+              required
+            />
+          </div>
+          {state.errors?.identifiant?.map((error) => (
+            <small className="field-error" key={error}>{error}</small>
+          ))}
+        </div>
+        {state.success && (
+          <div className="form-message form-success" role="status">
+            {state.success}
+          </div>
+        )}
+        <button className="button button-primary auth-submit" type="submit" disabled={pending}>
+          {pending ? (
+            <><LoaderCircle className="spin" size={18} /> Vérification...</>
+          ) : (
+            <>Continuer <ArrowRight size={18} /></>
+          )}
+        </button>
+      </form>
+    </>
+  );
+}
+
+export function NewPasswordForm() {
+  const [state, action, pending] = useActionState(
+    updatePasswordAction,
+    initialState,
+  );
+
+  return (
+    <>
+      <div className="auth-form-heading">
+        <span>Dernière étape</span>
+        <h2>Choisissez un nouveau mot de passe</h2>
+        <p>Utilisez au moins 8 caractères et un mot de passe unique.</p>
+      </div>
+      <form action={action} className="auth-form">
+        <div className="auth-field">
+          <label htmlFor="new-password">Nouveau mot de passe</label>
+          <PasswordInput id="new-password" name="password" autoComplete="new-password" />
+          {state.errors?.password?.map((error) => (
+            <small className="field-error" key={error}>{error}</small>
+          ))}
+        </div>
+        <div className="auth-field">
+          <label htmlFor="confirm-password">Confirmez le mot de passe</label>
+          <PasswordInput id="confirm-password" name="confirmPassword" autoComplete="new-password" />
+          {state.errors?.confirmPassword?.map((error) => (
+            <small className="field-error" key={error}>{error}</small>
+          ))}
+        </div>
+        {state.message && (
+          <div className="form-message form-error" role="alert">{state.message}</div>
+        )}
+        <button className="button button-primary auth-submit" type="submit" disabled={pending}>
+          {pending ? (
+            <><LoaderCircle className="spin" size={18} /> Mise à jour...</>
+          ) : (
+            <>Enregistrer <ArrowRight size={18} /></>
+          )}
+        </button>
+      </form>
+    </>
+  );
+}

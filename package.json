@@ -10,7 +10,7 @@
   "scripts": {
     "dev:portal": "bun --cwd apps/portal dev --port 3002",
     "dev:zerecruit": "bun --cwd apps/zerecruit dev --port 3000",
-    "dev:zecontrol": "bun --cwd apps/zecontrol dev --port 3001",
+    "dev:zecontrol": "NEXT_PUBLIC_SITE_URL=http://localhost:3001 NEXT_PUBLIC_PORTAL_URL=http://localhost:3002 bun --env-file=../zerecruit/.env --cwd apps/zecontrol dev --port 3001",
     "build:portal": "bun --cwd apps/portal build",
     "build:zerecruit": "bun --cwd apps/zerecruit build",
     "build:zecontrol": "bun --cwd apps/zecontrol build",

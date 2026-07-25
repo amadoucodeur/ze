@@ -4,7 +4,7 @@ import { dispatchAiJobs } from "@/lib/jobs/dispatch";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/supabase/current-profile";
 
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 function isSameOrigin(request: Request) {
   const origin = request.headers.get("origin");

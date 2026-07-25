@@ -14,6 +14,7 @@ import {
   UsersRound,
   WifiOff,
 } from "lucide-react";
+import Link from "next/link";
 import { ZeControlLogo, ZeSuiteLogo } from "@ze/ui-foundations/brands";
 
 const portalUrl = process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3002";
@@ -36,10 +37,12 @@ export default function Home() {
           <a href="#hors-connexion">Hors connexion</a>
           <a href="#ecrans">Tous les écrans</a>
         </nav>
-        <a className="suite-link" href={portalUrl}>
-          <ZeSuiteLogo compact />
-          <span>Retour à ZeSuite</span>
-        </a>
+        <div className="control-header-actions">
+          <a className="suite-signature" href={portalUrl}>
+            ZeSuite <span aria-hidden="true">↗</span>
+          </a>
+          <Link className="header-login header-signup" href="/connexion">Connexion</Link>
+        </div>
       </header>
 
       <section className="control-hero shell" id="accueil">
@@ -254,9 +257,9 @@ export default function Home() {
           <h2>Le temps de votre équipe mérite une information claire.</h2>
           <p>ZeControl rejoint ZeSuite avec une expérience indépendante et un compte partagé.</p>
         </div>
-        <a className="button button-light" href={portalUrl}>
-          Découvrir ZeSuite <ArrowRight size={18} />
-        </a>
+        <Link className="button button-light" href="/connexion">
+          Créer mon espace <ArrowRight size={18} />
+        </Link>
       </section>
 
       <footer className="shell">

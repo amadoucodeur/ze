@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getPlan, hasActivePlanAccess } from "@/lib/billing/plans";
 import { dispatchAiJobs } from "@/lib/jobs/dispatch";
 
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 function isSameOrigin(request: Request) {
   const origin = request.headers.get("origin");

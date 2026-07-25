@@ -17,30 +17,30 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3002",
   ),
-  title: "ZeSuite — Tous vos outils, un seul compte",
+  title: "ZeSuite — Vos équipes et vos outils, enfin réunis",
   description:
-    "Découvrez ZeRecruit, ZeControl et les futurs produits ZeSuite. Une organisation, un compte et des outils spécialisés.",
+    "Retrouvez ZeRecruit, ZeControl et les futurs produits ZeSuite dans un espace simple, cohérent et prêt à évoluer.",
   openGraph: {
     type: "website",
     locale: "fr_FR",
     siteName: "ZeSuite",
-    title: "ZeSuite — Tous vos outils, un seul compte",
+    title: "ZeSuite — Vos équipes et vos outils, enfin réunis",
     description:
-      "Une organisation, un compte et des produits spécialisés pour vos équipes.",
+      "Un compte, une organisation et des produits spécialisés pour faire avancer vos équipes.",
     images: [
       {
         url: "/og.png",
-        width: 1727,
-        height: 911,
-        alt: "ZeSuite — Tous vos outils, un seul compte",
+        width: 1732,
+        height: 908,
+        alt: "ZeSuite — Vos équipes et vos outils, enfin réunis",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ZeSuite — Tous vos outils, un seul compte",
+    title: "ZeSuite — Vos équipes et vos outils, enfin réunis",
     description:
-      "Une organisation, un compte et des produits spécialisés pour vos équipes.",
+      "Un compte, une organisation et des produits spécialisés pour faire avancer vos équipes.",
     images: ["/og.png"],
   },
 };

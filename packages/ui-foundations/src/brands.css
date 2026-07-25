@@ -18,29 +18,96 @@
 .ze-brand-compact { gap: 0; }
 
 .ze-suite-mark {
-  width: 42px;
-  height: 39px;
+  width: 43px;
+  height: 42px;
   position: relative;
   display: block;
   flex: 0 0 auto;
 }
-.ze-suite-layer {
+.ze-suite-canvas {
   position: absolute;
-  width: 25px;
-  height: 31px;
-  border: 6px solid;
-  border-radius: 9px;
-  background: transparent;
-  box-shadow: 0 5px 11px rgba(8, 10, 11, .10);
+  inset: 0;
+  display: block;
+  width: 43px;
+  height: 42px;
+  transform-origin: top left;
 }
-.ze-suite-layer-back { left: 15px; top: 1px; z-index: 1; border-color: #080a0b; transform: rotate(3deg); }
-.ze-suite-layer-middle { left: 8px; top: 4px; z-index: 2; border-color: rgba(0, 63, 93, .52); transform: rotate(1deg); }
-.ze-suite-layer-front { left: 1px; top: 7px; z-index: 3; border-color: #003f5d; transform: rotate(-3deg); }
-.ze-suite-brand .ze-brand-word b { color: #003f5d; }
-.ze-suite-brand.ze-brand-inverse .ze-suite-layer-back { border-color: rgba(244, 241, 233, .28); }
-.ze-suite-brand.ze-brand-inverse .ze-suite-layer-middle { border-color: #003f5d; }
-.ze-suite-brand.ze-brand-inverse .ze-suite-layer-front { border-color: #f4f1e9; }
-.ze-suite-brand.ze-brand-inverse .ze-brand-word b { color: #f4f1e9; }
+.ze-suite-layer-back {
+  position: absolute;
+  right: 1px;
+  top: 5px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #7894b4, #2d7297);
+  box-shadow: 0 7px 15px rgba(6, 24, 44, .16);
+  transform: rotate(7deg);
+}
+.ze-suite-emblem {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  z-index: 2;
+  width: 34px;
+  height: 35px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(120,148,180,.22), transparent 44%),
+    #06182c;
+  box-shadow: 0 7px 17px rgba(6,24,44,.24), inset 0 0 0 1px rgba(255,255,255,.04);
+  transform: rotate(-6deg);
+}
+.ze-suite-stroke { position: absolute; display: block; border-radius: 99px; }
+.ze-suite-stroke-top {
+  left: 7px;
+  top: 7px;
+  z-index: 1;
+  width: 21px;
+  height: 7px;
+  background: #7894b4;
+  transform: skewX(-19deg);
+}
+.ze-suite-stroke-slash {
+  left: 14px;
+  top: 7px;
+  z-index: 2;
+  width: 7px;
+  height: 23px;
+  background: #dcff64;
+  box-shadow: 0 2px 7px rgba(220,255,100,.22);
+  transform: rotate(42deg);
+}
+.ze-suite-stroke-bottom {
+  left: 6px;
+  bottom: 6px;
+  z-index: 3;
+  width: 22px;
+  height: 7px;
+  background: #f3f2e9;
+  box-shadow: 0 2px 5px rgba(255,255,255,.08);
+  transform: skewX(-19deg);
+}
+.ze-suite-node {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #f3f2e9;
+  border-radius: 50%;
+  background: #dcff64;
+  box-shadow: 0 3px 7px rgba(6,24,44,.18);
+}
+.ze-suite-brand .ze-brand-word b { color: #1d638e; }
+.ze-suite-brand.ze-brand-inverse .ze-suite-layer-back { background: #2d7297; }
+.ze-suite-brand.ze-brand-inverse .ze-suite-emblem { border-color: rgba(255,255,255,.24); background: #f3f2e9; }
+.ze-suite-brand.ze-brand-inverse .ze-suite-stroke-top { background: #7894b4; }
+.ze-suite-brand.ze-brand-inverse .ze-suite-stroke-bottom { background: #06182c; }
+.ze-suite-brand.ze-brand-inverse .ze-suite-node { border-color: #06182c; }
+.ze-suite-brand.ze-brand-inverse .ze-brand-word b { color: #dcff64; }
 
 .ze-control-mark {
   width: 38px;
@@ -114,13 +181,10 @@
 .ze-recruit-brand .ze-brand-word b { color: #18a875; }
 .ze-recruit-brand.ze-brand-inverse .ze-brand-word b { color: #dcff64; }
 
-.ze-brand-compact .ze-suite-mark { width: 33px; height: 30px; }
+.ze-brand-compact .ze-suite-mark { width: 31px; height: 31px; }
+.ze-brand-compact .ze-suite-canvas { transform: scale(.72); }
 .ze-brand-compact .ze-control-mark,
 .ze-brand-compact .ze-recruit-mark { width: 30px; height: 30px; }
-.ze-brand-compact .ze-suite-layer { width: 20px; height: 25px; border-width: 5px; border-radius: 7px; }
-.ze-brand-compact .ze-suite-layer-back { left: 12px; top: 0; }
-.ze-brand-compact .ze-suite-layer-middle { left: 6px; top: 2px; }
-.ze-brand-compact .ze-suite-layer-front { left: 0; top: 5px; }
 .ze-brand-compact .ze-control-ring { width: 20px; height: 20px; left: 5px; top: 5px; }
 .ze-brand-compact .ze-control-hand { left: 15px; top: 15px; }
 .ze-brand-compact .ze-recruit-layer-back { inset: 7px 0 1px 9px; }
