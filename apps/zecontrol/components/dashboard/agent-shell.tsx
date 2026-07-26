@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { CalendarDays, Clock3, LogOut, UserRound } from "lucide-react";
+import { LogOut, UserRound } from "lucide-react";
 import { ZeControlLogo } from "@ze/ui-foundations/brands";
 import { logoutAction } from "@/app/actions/auth";
+import { DashboardNavLink } from "./dashboard-nav-link";
 
 export function AgentShell({ children, fullname }: { children: React.ReactNode; fullname: string }) {
   return (
@@ -15,9 +16,9 @@ export function AgentShell({ children, fullname }: { children: React.ReactNode; 
       </header>
       <section className="agent-main">{children}</section>
       <nav className="agent-mobile-navigation" aria-label="Navigation principale">
-        <Link href="/dashboard"><Clock3 size={19} /><span>Pointer</span></Link>
-        <Link href="/dashboard/mon-activite"><CalendarDays size={19} /><span>Activité</span></Link>
-        <Link href="/dashboard/parametres/profil"><UserRound size={19} /><span>Profil</span></Link>
+        <DashboardNavLink href="/dashboard" label="Pointer" icon="clocking" match="exact" />
+        <DashboardNavLink href="/dashboard/mon-activite" label="Activité" icon="reports" />
+        <DashboardNavLink href="/dashboard/parametres/profil" label="Profil" icon="settings" />
       </nav>
     </main>
   );

@@ -262,7 +262,9 @@ export function PersonalClockingWorkspace({
       const databaseNotReady = /reviewed_by|pointed_at|profile_id|organisation_id|row-level security|policy/i.test(message);
       setFeedback({
         type: "error",
-        message: databaseNotReady
+        message: /billing_access_suspended/i.test(message)
+          ? "La facturation de l’organisation doit être régularisée avant un nouveau pointage. Contactez votre responsable."
+          : databaseNotReady
           ? "Le service de pointage est momentanément indisponible. Contactez votre administrateur."
           : message === "offline"
           ? "Une connexion internet est requise pour pointer."

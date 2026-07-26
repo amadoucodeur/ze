@@ -102,9 +102,13 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
       });
 
     if (error) {
-      setMessage(/invalid_sequence/i.test(error.message)
-        ? "Cette modification rendrait la suite des pointages incohérente. Vérifiez l’action et l’heure demandées."
-        : "La décision n’a pas pu être enregistrée.");
+      setMessage(
+        /invalid_sequence/i.test(error.message)
+          ? "Cette modification rendrait la suite des pointages incohérente. Vérifiez l’action et l’heure demandées."
+          : /billing_access_suspended/i.test(error.message)
+            ? "La facturation de l’organisation doit être régularisée avant d’approuver un nouveau pointage."
+            : "La décision n’a pas pu être enregistrée.",
+      );
     } else {
       setRequests((current) => current.map((request) => request.id === reviewing.request.id ? { ...request, status: reviewing.decision, decision_reason: note.trim() || null } : request));
       setReviewing(null);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { MoreHorizontal, X } from "lucide-react";
 
 export function DashboardMobileMenu({ children }: { children: React.ReactNode }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -48,7 +48,8 @@ export function DashboardMobileMenu({ children }: { children: React.ReactNode })
         aria-label={open ? "Fermer le menu" : "Ouvrir le menu"}
         aria-expanded={open}
       >
-        {open ? <X size={22} /> : <Menu size={22} />}
+        {open ? <X size={20} /> : <MoreHorizontal size={20} />}
+        <span>{open ? "Fermer" : "Plus"}</span>
       </summary>
       {children}
     </details>

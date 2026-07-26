@@ -3,11 +3,15 @@ import {
   BadgeCheck,
   Building2,
   Check,
+  CircleCheck,
   CloudOff,
+  CreditCard,
   Laptop,
   MapPin,
   Radio,
+  ReceiptText,
   ShieldCheck,
+  Sparkles,
   Smartphone,
   Tablet,
   TimerReset,
@@ -16,8 +20,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ZeControlLogo, ZeSuiteLogo } from "@ze/ui-foundations/brands";
+import { BillingCalculator } from "@/components/marketing/billing-calculator";
 
 const portalUrl = process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3002";
+const unitPrice = 300;
 
 const team = [
   { initials: "AK", name: "Awa Koné", time: "08:02", status: "À l’heure" },
@@ -34,6 +40,7 @@ export default function Home() {
         </a>
         <nav aria-label="Navigation principale">
           <a href="#solution">La solution</a>
+          <a href="#tarifs">Tarifs</a>
           <a href="#hors-connexion">Hors connexion</a>
           <a href="#ecrans">Tous les écrans</a>
         </nav>
@@ -58,16 +65,16 @@ export default function Home() {
             de travail. Au bureau, sur le terrain ou avec un réseau instable.
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href="#solution">
-              Découvrir ZeControl <ArrowRight size={18} />
-            </a>
-            <a className="button button-ghost" href="#desktop">
-              Voir l’expérience desktop
+            <Link className="button button-primary" href="/connexion">
+              Commencer sans payer <ArrowRight size={18} />
+            </Link>
+            <a className="button button-ghost" href="#solution">
+              Voir comment ça marche
             </a>
           </div>
           <div className="trust-row" aria-label="Principaux avantages">
-            <span><BadgeCheck size={16} /> Simple à utiliser</span>
-            <span><ShieldCheck size={16} /> Traces vérifiables</span>
+            <span><BadgeCheck size={16} /> 0 F à l’activation</span>
+            <span><ShieldCheck size={16} /> Payez après utilisation</span>
           </div>
         </div>
 
@@ -181,6 +188,70 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="landing-billing-section" id="tarifs">
+        <div className="shell">
+          <div className="landing-billing-heading">
+            <div>
+              <p className="section-kicker">Une facturation qui suit vraiment l’usage</p>
+              <h2>Votre équipe pointe d’abord.<br /><em>Vous payez ensuite.</em></h2>
+            </div>
+            <p>
+              À la fin du mois, vous réglez uniquement pour les collaborateurs
+              qui ont réellement utilisé ZeControl. Un compte créé mais jamais
+              utilisé ne vous coûte rien.
+            </p>
+          </div>
+
+          <div className="landing-billing-grid">
+            <article className="landing-price-card">
+              <div className="landing-price-badge"><Sparkles size={15} /> 0 F aujourd’hui</div>
+              <div className="landing-price">
+                <strong>{unitPrice}</strong>
+                <span><b>F CFA</b>par collaborateur<br />ayant pointé / mois</span>
+              </div>
+              <p>
+                Pas d’avance. Pas de siège dormant facturé. Le premier pointage
+                valide du mois active simplement la ligne de facturation.
+              </p>
+              <div className="landing-price-promises">
+                <span><CircleCheck size={17} /> Aucun abonnement minimum</span>
+                <span><CircleCheck size={17} /> Un prix unique, quel que soit le nombre de pointages</span>
+                <span><CircleCheck size={17} /> Une facture claire en fin de mois</span>
+              </div>
+              <Link className="button landing-price-button" href="/connexion">
+                Commencer sans payer <ArrowRight size={18} />
+              </Link>
+              <small>Votre moyen de paiement n’est débité qu’après consommation.</small>
+            </article>
+
+            <BillingCalculator unitPrice={unitPrice} />
+          </div>
+
+          <div className="landing-billing-steps" aria-label="Comment fonctionne la facturation">
+            <article>
+              <span><UsersRound size={20} /></span>
+              <div><small>1. Activez</small><h3>Ajoutez votre équipe</h3><p>Créer un accès ne déclenche aucune facturation.</p></div>
+            </article>
+            <article>
+              <span><BadgeCheck size={20} /></span>
+              <div><small>2. Utilisez</small><h3>Votre équipe pointe</h3><p>Seuls les collaborateurs ayant pointé sont comptés.</p></div>
+            </article>
+            <article>
+              <span><ReceiptText size={20} /></span>
+              <div><small>3. Réglez</small><h3>Payez en fin de mois</h3><p>Une facture lisible, basée sur l’usage réel.</p></div>
+            </article>
+          </div>
+
+          <div className="landing-billing-proof">
+            <CreditCard size={21} />
+            <p>
+              <strong>Simple à retenir :</strong> aucun pointage = 0 F.
+              Un ou plusieurs pointages dans le mois = {unitPrice} F.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="offline-section" id="hors-connexion">
         <div className="shell offline-layout">
           <div className="offline-copy">
@@ -254,11 +325,11 @@ export default function Home() {
       <section className="closing-cta shell">
         <div>
           <ZeControlLogo inverse />
-          <h2>Le temps de votre équipe mérite une information claire.</h2>
-          <p>ZeControl rejoint ZeSuite avec une expérience indépendante et un compte partagé.</p>
+          <h2>Commencez aujourd’hui. Payez seulement quand votre équipe pointe.</h2>
+          <p>0 F à l’activation. {unitPrice} F par collaborateur ayant pointé, réglés en fin de mois.</p>
         </div>
         <Link className="button button-light" href="/connexion">
-          Créer mon espace <ArrowRight size={18} />
+          Commencer sans payer <ArrowRight size={18} />
         </Link>
       </section>
 

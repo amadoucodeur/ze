@@ -51,6 +51,31 @@ function DashboardNavigation({
       {organisationName && canManageTeam && (
         <DashboardNavLink href="/dashboard/equipe" label="Équipe" icon="team" />
       )}
+      {organisationName && role === "owner" && (
+        <DashboardNavLink href="/dashboard/facturation" label="Facturation" icon="billing" />
+      )}
+      <DashboardNavLink href={role === "owner" ? "/dashboard/parametres/organisation" : "/dashboard/parametres/profil"} label="Paramètres" icon="settings" />
+    </>
+  );
+}
+
+function DashboardMoreNavigation({
+  organisationName,
+  pendingRequestCount,
+  role,
+}: {
+  organisationName: string | null;
+  pendingRequestCount: number;
+  role: ZeControlRole;
+}) {
+  return (
+    <>
+      {organisationName && (
+        <DashboardNavLink href="/dashboard/demandes" label="Demandes" icon="requests" badge={pendingRequestCount} />
+      )}
+      {organisationName && role === "owner" && (
+        <DashboardNavLink href="/dashboard/facturation" label="Facturation" icon="billing" />
+      )}
       <DashboardNavLink href={role === "owner" ? "/dashboard/parametres/organisation" : "/dashboard/parametres/profil"} label="Paramètres" icon="settings" />
     </>
   );
@@ -119,14 +144,29 @@ export function DashboardShell({
           <ZeControlLogo inverse />
         </Link>
         <div className="dashboard-mobile-workspace">
-          <small>Espace</small>
+          <small>{roleLabel(role)}</small>
           <strong>{organisationName ?? "À configurer"}</strong>
         </div>
+        <Link className="dashboard-mobile-profile" href="/dashboard/parametres/profil" aria-label="Ouvrir mon profil">
+          {fullname.slice(0, 2).toUpperCase()}
+        </Link>
+      </header>
+      <nav className="dashboard-mobile-dock" aria-label="Navigation mobile principale">
+        <DashboardNavLink href="/dashboard" label="Accueil" icon="home" match="exact" />
+        {organisationName && canManageTeam && (
+          <DashboardNavLink href="/dashboard/pointage" label="Pointer" icon="clocking" />
+        )}
+        {organisationName && canManageTeam && (
+          <DashboardNavLink href="/dashboard/rapports" label="Rapports" icon="reports" />
+        )}
+        {organisationName && canManageTeam && (
+          <DashboardNavLink href="/dashboard/equipe" label="Équipe" icon="team" />
+        )}
         <DashboardMobileMenu>
           <div className="dashboard-mobile-drawer">
             <div className="dashboard-mobile-user"><UserSummary fullname={fullname} role={role} /></div>
-            <nav aria-label="Navigation mobile du tableau de bord">
-              <DashboardNavigation organisationName={organisationName} canManageTeam={canManageTeam} pendingRequestCount={pendingRequestCount} role={role} />
+            <nav aria-label="Autres destinations">
+              <DashboardMoreNavigation organisationName={organisationName} pendingRequestCount={pendingRequestCount} role={role} />
             </nav>
             <div className="dashboard-mobile-apps">
               <a href={portalUrl}><AppWindow size={18} /> Mes applications</a>
@@ -134,7 +174,7 @@ export function DashboardShell({
             <div className="dashboard-mobile-logout"><LogoutForm /></div>
           </div>
         </DashboardMobileMenu>
-      </header>
+      </nav>
       <section className="dashboard-main" id="dashboard-content" tabIndex={-1}>
         {children}
       </section>

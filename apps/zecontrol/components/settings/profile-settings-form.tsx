@@ -54,33 +54,24 @@ export function ProfileSettingsForm({
     }
 
     setPending(true);
-    const userId = (await supabase.auth.getClaims()).data?.claims?.sub;
-    if (!userId) {
-      setPending(false);
-      setFeedback({ type: "error", message: "Votre session a expiré. Reconnectez-vous." });
-      return;
-    }
-    const now = new Date().toISOString();
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({ fullname: fullname.trim(), phone: phone.trim() || null, updated_at: now })
-      .eq("id", userId);
-    if (profileError) {
-      setPending(false);
-      setFeedback({ type: "error", message: "Votre identité ZeSuite n’a pas pu être enregistrée." });
-      return;
-    }
-
-    const { error: configError } = await supabase
+    const { error } = await supabase
       .schema("zecontrol")
-      .from("profiles_configs")
-      .update({ poste: poste.trim() || null, service: service.trim() || null, updated_at: now })
-      .eq("id", userId);
+      .rpc("update_own_profile_settings", {
+        new_fullname: fullname.trim(),
+        new_phone: phone.trim(),
+        new_poste: poste.trim(),
+        new_service: service.trim(),
+      });
     setPending(false);
 
-    if (configError) {
-      await supabase.from("profiles").update({ fullname: profile.fullname, phone: profile.phone, updated_at: now }).eq("id", userId);
-      setFeedback({ type: "error", message: "Votre configuration ZeControl n’a pas pu être enregistrée." });
+    if (error) {
+      const sessionExpired = /authentication_required|jwt|session/i.test(error.message);
+      setFeedback({
+        type: "error",
+        message: sessionExpired
+          ? "Votre session a expiré. Reconnectez-vous."
+          : "Votre profil n’a pas pu être enregistré. Réessayez.",
+      });
       return;
     }
 

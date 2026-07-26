@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BellRing, Clock3, LayoutDashboard, Settings2, UsersRound } from "lucide-react";
+import { BarChart3, BellRing, Clock3, CreditCard, LayoutDashboard, Settings2, UsersRound } from "lucide-react";
 
 const icons = {
   home: LayoutDashboard,
@@ -10,6 +10,7 @@ const icons = {
   team: UsersRound,
   reports: BarChart3,
   requests: BellRing,
+  billing: CreditCard,
   settings: Settings2,
 };
 
@@ -33,7 +34,7 @@ export function DashboardNavLink({
   const Icon = icons[icon];
 
   return (
-    <Link className={active ? "active" : ""} href={href}>
+    <Link className={active ? "active" : ""} href={href} aria-current={active ? "page" : undefined}>
       <Icon size={19} /> {label} {Boolean(badge) && <span className="dashboard-nav-badge">{badge! > 99 ? "99+" : badge}</span>}
     </Link>
   );
