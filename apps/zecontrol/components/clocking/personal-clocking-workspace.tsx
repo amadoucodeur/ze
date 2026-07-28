@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  BellRing,
   CalendarDays,
   Check,
   CirclePause,
@@ -23,6 +24,8 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { dateKey } from "@/lib/reports/period";
+import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
+import { currentWorkPolicyMessage } from "@/lib/work-policy-evaluation";
 import { EventRequestPanel, type EventRequestIntent } from "./event-request-panel";
 
 type EventType = "start" | "break" | "resume" | "end";
@@ -92,7 +95,6 @@ export function PersonalClockingWorkspace({
   organisationId,
   organisationName,
   fullname,
-  policy,
   canRemote,
   timeZone,
   mode = "agent",
@@ -104,7 +106,6 @@ export function PersonalClockingWorkspace({
   organisationId: string;
   organisationName: string;
   fullname: string;
-  policy: "strict" | "flexible" | "free";
   canRemote: boolean;
   timeZone: string;
   mode?: "agent" | "manager";
@@ -121,6 +122,8 @@ export function PersonalClockingWorkspace({
   const [locationReady, setLocationReady] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
+  const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
+  const currentDayKey = dateKey(now, timeZone);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -130,7 +133,7 @@ export function PersonalClockingWorkspace({
   useEffect(() => {
     let active = true;
     async function load() {
-      const [eventsResult, configResult] = await Promise.all([
+      const [eventsResult, configResult, workPolicyResult] = await Promise.all([
         supabase
           .schema("zecontrol")
           .from("events")
@@ -144,6 +147,12 @@ export function PersonalClockingWorkspace({
           .select("lat, long, radius")
           .eq("id", organisationId)
           .single(),
+        supabase
+          .schema("zecontrol")
+          .rpc("resolve_work_policy", {
+            target_profile_id: profileId,
+            target_work_date: currentDayKey,
+          }),
       ]);
       if (!active) return;
       if (eventsResult.error || configResult.error) {
@@ -151,17 +160,23 @@ export function PersonalClockingWorkspace({
       } else {
         setEvents((eventsResult.data ?? []) as ClockingEvent[]);
         setLocationReady(
-          canRemote || policy === "free" ||
+          canRemote ||
           (configResult.data.lat != null && configResult.data.long != null && configResult.data.radius != null),
+        );
+        const resolved = workPolicyResult.data as { definition?: unknown } | null;
+        setWorkPolicyDefinition(
+          isWorkPolicyDefinition(resolved?.definition)
+            ? { ...resolved.definition, daySchedules: resolved.definition.daySchedules ?? {} }
+            : null,
         );
       }
       setLoading(false);
     }
     void load();
     return () => { active = false; };
-  }, [canRemote, organisationId, policy, profileId, supabase]);
+  }, [canRemote, currentDayKey, organisationId, profileId, supabase, timeZone]);
 
-  const today = dateKey(now, timeZone);
+  const today = currentDayKey;
   const selectedDay = today;
   const todayEvents = events.filter((event) => dateKey(new Date(event.pointed_at), timeZone) === today);
   const todayValidEvents = todayEvents
@@ -179,6 +194,14 @@ export function PersonalClockingWorkspace({
     : 0;
   const canCancelLastEvent = Boolean(lastTodayEvent && cancellationSeconds > 0);
   const todayMinutes = minutesForEvents(todayEvents, now, timeZone);
+  const workPolicyMessage = workPolicyDefinition
+    ? currentWorkPolicyMessage({
+        definition: workPolicyDefinition,
+        events: todayEvents,
+        now,
+        timeZone,
+      })
+    : null;
   const editableEvents = events
     .filter((event) => event.event_status === "accepted" || event.event_status === "pending")
     .map(({ id, type, pointed_at }) => ({ id, type, pointed_at }));
@@ -317,6 +340,7 @@ export function PersonalClockingWorkspace({
 
         <div className={`agent-command-card state-${agentState} action-${currentAction}`}>
           <div className="agent-command-glow" aria-hidden="true"><i /><i /><i /></div>
+          {workPolicyMessage && <div className={`agent-policy-message ${workPolicyMessage.tone}`} role="status"><span>{workPolicyMessage.tone === "success" ? <Check size={17} /> : <BellRing size={17} />}</span><div><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></div></div>}
           <div className="agent-command-copy">
             <span className="agent-state-pill"><AgentStateIcon size={15} /> {agentStateCopy.eyebrow}</span>
             <h2>{agentStateCopy.title}</h2>
@@ -380,7 +404,7 @@ export function PersonalClockingWorkspace({
           <div className="clocking-live-time"><strong>{new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone }).format(now)}</strong><span><i /> {timeZone.replace("_", " ")}</span></div>
         </header>
 
-        <div className="clocking-action-card">
+          <div className="clocking-action-card">
           <div className="clocking-state">
             <span className={isWorking ? "working" : isPaused ? "paused" : isCompletedToday ? "completed" : "resting"}>{isWorking ? <><ShieldCheck size={16} /> Journée en cours</> : isPaused ? <><CirclePause size={16} /> En pause</> : isCompletedToday ? <><Check size={16} /> Journée terminée</> : <><Check size={16} /> Prêt à pointer</>}</span>
             <p>{lastTodayEvent ? `Dernière action : ${typeLabels[lastTodayEvent.type]} à ${new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(lastTodayEvent.pointed_at))}` : "Votre journée commencera avec votre arrivée."}</p>
@@ -392,6 +416,7 @@ export function PersonalClockingWorkspace({
           </button>
           {(isWorking || isPaused) && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={Boolean(submitting)}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
           <div className="clocking-assurance"><span className={locationReady ? "ready" : "missing"}><LocateFixed size={16} /> {locationReady ? "Localisation prête" : "Zone non configurée"}</span><span><Clock3 size={16} /> Heure fiable</span></div>
+          {workPolicyMessage && <div className={`manager-policy-message ${workPolicyMessage.tone}`} role="status"><BellRing size={16} /><span><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></span></div>}
           {canCancelLastEvent && <button className="clocking-undo-action" type="button" onClick={() => void cancelLastEvent()} disabled={cancelling || Boolean(submitting)}><Undo2 size={16} /> {cancelling ? "Annulation..." : `Annuler (${cancellationSeconds}s)`}</button>}
           {feedback && <div className={`clocking-feedback ${feedback.type}`} role={feedback.type === "error" ? "alert" : "status"}>{feedback.type === "success" ? <Check size={18} /> : <AlertTriangle size={18} />}<span>{feedback.message}</span></div>}
         </div>

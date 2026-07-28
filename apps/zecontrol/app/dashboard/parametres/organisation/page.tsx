@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ShieldCheck, UsersRound } from "lucide-react";
+import { Building2, Clock3, ShieldCheck, UsersRound } from "lucide-react";
 import { OrganisationSettingsWorkspace } from "@/components/settings/organisation-settings-workspace";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
 
@@ -17,6 +17,10 @@ export default async function OrganisationSettingsPage() {
   return (
     <div className="dashboard-settings-page organisation-settings-page">
       <header className="dashboard-content-header"><div><span>Paramètres de l’espace</span><h1>Organisation</h1><p>Gérez l’identité de l’entreprise et les règles communes de ZeControl.</p></div><div className="settings-page-avatar"><Building2 size={23} /></div></header>
+      <nav className="settings-section-tabs" aria-label="Sections des paramètres">
+        <Link className="is-active" href="/dashboard/parametres/organisation" aria-current="page"><Building2 size={16} /> Organisation</Link>
+        <Link href="/dashboard/parametres/travail"><Clock3 size={16} /> Cadre de travail</Link>
+      </nav>
       <div className="organisation-status-bar"><div><span className="organisation-logo-preview">{access.organisation.name.slice(0, 2).toUpperCase()}</span><div><small>Organisation active</small><strong>{access.organisation.name}</strong></div></div><div><span><ShieldCheck size={14} /> Propriétaire</span><Link href="/dashboard/equipe"><UsersRound size={14} /> Configurer l’équipe</Link></div></div>
       <OrganisationSettingsWorkspace organisationId={access.organisation.id} organisationIdentifier={access.organisation.identifiant} />
     </div>

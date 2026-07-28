@@ -27,11 +27,14 @@ import { createClient } from "@/lib/supabase/client";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
 import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
 import { dateKey, defaultPeriodDates, periodLabel, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
+import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
+import { currentWorkPolicyMessage, evaluateWorkday } from "@/lib/work-policy-evaluation";
 
 type EventType = "start" | "break" | "resume" | "end";
 type EventStatus = "pending" | "accepted" | "rejected" | "cancelled";
 type LiveStatus = "connecting" | "live" | "unavailable";
 type RowStatus = "working" | "paused" | "completed" | "not-started" | "attention";
+type StatusFilter = "all" | RowStatus | "late";
 
 type ReportEvent = {
   id: string;
@@ -57,12 +60,18 @@ type ReportColumn =
   | "poste"
   | "service"
   | "day"
+  | "schedule"
   | "start"
+  | "late"
   | "firstBreak"
   | "firstResume"
   | "end"
   | "worked"
+  | "expected"
+  | "difference"
+  | "overtime"
   | "pause"
+  | "compliance"
   | "status"
   | "events";
 
@@ -86,12 +95,18 @@ const columnOrder: ReportColumn[] = [
   "poste",
   "service",
   "day",
+  "schedule",
   "start",
+  "late",
   "firstBreak",
   "firstResume",
   "end",
   "worked",
+  "expected",
+  "difference",
+  "overtime",
   "pause",
+  "compliance",
   "status",
   "events",
 ];
@@ -100,12 +115,18 @@ const columnLabels: Record<ReportColumn, string> = {
   poste: "Poste",
   service: "Service",
   day: "Journée",
+  schedule: "Horaire prévu",
   start: "Début de service",
+  late: "Retard",
   firstBreak: "Première pause",
   firstResume: "Première reprise",
   end: "Fin de service",
   worked: "Temps travaillé",
+  expected: "Temps attendu",
+  difference: "Écart",
+  overtime: "Heures sup.",
   pause: "Temps de pause",
+  compliance: "Lecture horaire",
   status: "État",
   events: "Pointages",
 };
@@ -114,11 +135,27 @@ const liveDefaultColumns: ReportColumn[] = [
   "collaborator",
   "poste",
   "service",
+  "schedule",
   "start",
   "firstBreak",
   "worked",
+  "compliance",
   "status",
 ];
+
+type ReportWorkPolicy = { id: string; is_enabled: boolean; is_default: boolean };
+type ReportWorkPolicyVersion = { policy_id: string; definition: unknown; effective_from: string; version_number: number };
+type ReportWorkPolicyAssignment = {
+  policy_id: string;
+  target_type: "organisation" | "service" | "team" | "profile";
+  service_name: string | null;
+  team_id: string | null;
+  profile_id: string | null;
+  valid_from: string;
+  valid_until: string | null;
+  priority: number;
+};
+type ReportTeamMember = { team_id: string; profile_id: string; is_active: boolean };
 
 function durationLabel(minutes: number) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}`;
@@ -205,12 +242,16 @@ export function OrganisationReports({
   const initialDates = useMemo(() => defaultPeriodDates(initialPeriod, new Date(), timeZone), [initialPeriod, timeZone]);
   const [events, setEvents] = useState<ReportEvent[]>([]);
   const [profiles, setProfiles] = useState<ReportProfile[]>([]);
+  const [workPolicies, setWorkPolicies] = useState<ReportWorkPolicy[]>([]);
+  const [workPolicyVersions, setWorkPolicyVersions] = useState<ReportWorkPolicyVersion[]>([]);
+  const [workPolicyAssignments, setWorkPolicyAssignments] = useState<ReportWorkPolicyAssignment[]>([]);
+  const [workTeamMembers, setWorkTeamMembers] = useState<ReportTeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [service, setService] = useState("all");
-  const [status, setStatus] = useState<"all" | RowStatus>("all");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [period, setPeriod] = useState<ReportPeriod>(initialPeriod);
   const [start, setStart] = useState(initialDates.start);
   const [end, setEnd] = useState(initialDates.end);
@@ -233,7 +274,6 @@ export function OrganisationReports({
         });
       if (!active) return;
       if (profileResult.error) {
-        console.error("ZeControl report profiles:", profileResult.error);
         setError("Les collaborateurs ZeControl ne sont pas accessibles.");
         setLoading(false);
         setRefreshing(false);
@@ -273,7 +313,49 @@ export function OrganisationReports({
       setRefreshing(false);
     }
 
-    void Promise.all([loadProfiles(), loadEvents()]);
+    async function loadWorkPolicies() {
+      const [policiesResult, versionsResult, assignmentsResult, membersResult] =
+        await Promise.all([
+          supabase
+            .schema("zecontrol")
+            .from("work_policies")
+            .select("id, is_enabled, is_default")
+            .eq("organisation_id", organisationId),
+          supabase
+            .schema("zecontrol")
+            .from("work_policy_versions")
+            .select("policy_id, definition, effective_from, version_number")
+            .order("effective_from", { ascending: false }),
+          supabase
+            .schema("zecontrol")
+            .from("work_policy_assignments")
+            .select("policy_id, target_type, service_name, team_id, profile_id, valid_from, valid_until, priority")
+            .eq("organisation_id", organisationId),
+          supabase
+            .schema("zecontrol")
+            .from("work_team_members")
+            .select("team_id, profile_id, is_active"),
+        ]);
+      if (!active) return;
+      if (
+        policiesResult.error ||
+        versionsResult.error ||
+        assignmentsResult.error ||
+        membersResult.error
+      ) {
+        setWorkPolicies([]);
+        setWorkPolicyVersions([]);
+        setWorkPolicyAssignments([]);
+        setWorkTeamMembers([]);
+        return;
+      }
+      setWorkPolicies((policiesResult.data ?? []) as ReportWorkPolicy[]);
+      setWorkPolicyVersions((versionsResult.data ?? []) as ReportWorkPolicyVersion[]);
+      setWorkPolicyAssignments((assignmentsResult.data ?? []) as ReportWorkPolicyAssignment[]);
+      setWorkTeamMembers((membersResult.data ?? []) as ReportTeamMember[]);
+    }
+
+    void Promise.all([loadProfiles(), loadEvents(), loadWorkPolicies()]);
     return () => {
       active = false;
     };
@@ -350,6 +432,49 @@ export function OrganisationReports({
 
   const rows = useMemo(() => {
     const groups = new Map<string, ReportEvent[]>();
+    const policyById = new Map(workPolicies.map((policy) => [policy.id, policy]));
+    const teamsByProfile = new Map<string, Set<string>>();
+    for (const member of workTeamMembers) {
+      if (!member.is_active) continue;
+      const teamIds = teamsByProfile.get(member.profile_id) ?? new Set<string>();
+      teamIds.add(member.team_id);
+      teamsByProfile.set(member.profile_id, teamIds);
+    }
+    const defaultPolicy = workPolicies.find((policy) => policy.is_default && policy.is_enabled);
+
+    function resolveDefinition(profile: ReportProfile, day: string): WorkPolicyDefinition | null {
+      const profileTeams = teamsByProfile.get(profile.id) ?? new Set<string>();
+      const matching = workPolicyAssignments
+        .filter((assignment) => {
+          const policy = policyById.get(assignment.policy_id);
+          if (!policy?.is_enabled) return false;
+          if (assignment.valid_from > day || (assignment.valid_until && assignment.valid_until < day)) return false;
+          if (assignment.target_type === "profile") return assignment.profile_id === profile.id;
+          if (assignment.target_type === "team") return Boolean(assignment.team_id && profileTeams.has(assignment.team_id));
+          if (assignment.target_type === "service") {
+            return Boolean(
+              assignment.service_name &&
+              profile.service &&
+              assignment.service_name.trim().toLocaleLowerCase("fr") === profile.service.trim().toLocaleLowerCase("fr"),
+            );
+          }
+          return assignment.target_type === "organisation";
+        })
+        .sort((a, b) => {
+          const ranks = { organisation: 100, service: 200, team: 300, profile: 400 };
+          return (ranks[b.target_type] + b.priority) - (ranks[a.target_type] + a.priority) ||
+            b.valid_from.localeCompare(a.valid_from);
+        });
+      const policyId = matching[0]?.policy_id ?? defaultPolicy?.id;
+      if (!policyId) return null;
+      const version = workPolicyVersions
+        .filter((candidate) => candidate.policy_id === policyId && candidate.effective_from <= day)
+        .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.version_number - a.version_number)[0];
+      return isWorkPolicyDefinition(version?.definition)
+        ? { ...version.definition, daySchedules: version.definition.daySchedules ?? {} }
+        : null;
+    }
+
     const scopedEvents = events.filter((event) => period === "all" ||
       ((!start || dateKey(new Date(event.pointed_at), timeZone) >= start) &&
         (!end || dateKey(new Date(event.pointed_at), timeZone) <= end)));
@@ -379,6 +504,25 @@ export function OrganisationReports({
     return result
       .map((row) => {
         const valid = activeEvents(row.events);
+        const definition = resolveDefinition(row.profile, row.day);
+        const evaluation = definition
+          ? evaluateWorkday({
+              definition,
+              events: row.events,
+              date: row.day,
+              now: new Date(clockTick),
+              timeZone,
+            })
+          : null;
+        const policyMessage =
+          definition && row.day === dateKey(new Date(clockTick), timeZone)
+            ? currentWorkPolicyMessage({
+                definition,
+                events: row.events,
+                now: new Date(clockTick),
+                timeZone,
+              })
+            : null;
         return {
           ...row,
           valid,
@@ -389,10 +533,13 @@ export function OrganisationReports({
           worked: workedMinutes(row.events, clockTick, timeZone),
           pause: pauseMinutes(row.events, clockTick, timeZone),
           status: rowStatus(row.events),
+          definition,
+          evaluation,
+          policyMessage,
         };
       })
       .sort((a, b) => b.day.localeCompare(a.day) || a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
-  }, [clockTick, end, events, period, profiles, start, timeZone]);
+  }, [clockTick, end, events, period, profiles, start, timeZone, workPolicies, workPolicyAssignments, workPolicyVersions, workTeamMembers]);
 
   const services = [...new Set(profiles.map((profile) => profile.service).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, "fr"));
   const normalizedQuery = query.trim().toLocaleLowerCase("fr");
@@ -400,7 +547,12 @@ export function OrganisationReports({
     const searchable = `${row.profile.fullname} ${row.profile.identifiant} ${row.profile.poste ?? ""} ${row.profile.service ?? ""}`.toLocaleLowerCase("fr");
     return (!normalizedQuery || searchable.includes(normalizedQuery)) &&
       (service === "all" || row.profile.service === service) &&
-      (status === "all" || row.status === status);
+      (
+        status === "all" ||
+        (status === "late"
+          ? Boolean((row.evaluation?.lateMinutes ?? 0) > 0 || row.policyMessage?.tone === "attention")
+          : row.status === status)
+      );
   });
 
   const rangeLabel = periodLabel(period, start, end);
@@ -414,18 +566,33 @@ export function OrganisationReports({
   const workingCount = rows.filter((row) => row.status === "working").length;
   const pausedCount = rows.filter((row) => row.status === "paused").length;
   const notStartedCount = rows.filter((row) => row.status === "not-started").length;
+  const lateCount = rows.filter((row) => (row.evaluation?.lateMinutes ?? 0) > 0 || row.policyMessage?.tone === "attention").length;
+  const scheduleIssueCount = rows.filter((row) =>
+    row.evaluation &&
+    !["Conforme", "À venir", "Non planifiée"].includes(row.evaluation.label),
+  ).length;
 
   function cellValue(row: (typeof rows)[number], column: ReportColumn) {
     if (column === "collaborator") return row.profile.fullname;
     if (column === "poste") return row.profile.poste || "—";
     if (column === "service") return row.profile.service || "—";
     if (column === "day") return new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${row.day}T12:00:00`));
+    if (column === "schedule") return row.evaluation?.schedule ? `${row.evaluation.schedule.startTime}–${row.evaluation.schedule.endTime}` : "—";
     if (column === "start") return timeLabel(row.first, timeZone);
+    if (column === "late") return row.evaluation?.lateMinutes ? durationLabel(row.evaluation.lateMinutes) : "—";
     if (column === "firstBreak") return timeLabel(row.firstBreak, timeZone);
     if (column === "firstResume") return timeLabel(row.firstResume, timeZone);
     if (column === "end") return timeLabel(row.end, timeZone);
     if (column === "worked") return durationLabel(row.worked);
+    if (column === "expected") return row.evaluation ? durationLabel(row.evaluation.expectedMinutes) : "—";
+    if (column === "difference") {
+      if (!row.evaluation) return "—";
+      const difference = row.evaluation.differenceMinutes;
+      return `${difference > 0 ? "+" : difference < 0 ? "−" : ""}${durationLabel(Math.abs(difference))}`;
+    }
+    if (column === "overtime") return row.evaluation?.overtimeMinutes ? durationLabel(row.evaluation.overtimeMinutes) : "—";
     if (column === "pause") return durationLabel(row.pause);
+    if (column === "compliance") return row.evaluation?.label ?? "Non configuré";
     if (column === "events") return String(row.events.length);
     return statusLabels[row.status];
   }
@@ -469,6 +636,7 @@ export function OrganisationReports({
           <article><span><Coffee size={20} /></span><div><small>En pause</small><strong>{pausedCount}</strong></div></article>
           <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
           <article><span><Clock3 size={20} /></span><div><small>Pas commencé</small><strong>{notStartedCount}</strong></div></article>
+          <article className={lateCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>En retard</small><strong>{lateCount}</strong></div></article>
           <article className={attentionCount ? "attention" : ""}><span><AlertTriangle size={20} /></span><div><small>À vérifier</small><strong>{attentionCount}</strong></div></article>
         </section>
       ) : (
@@ -476,6 +644,7 @@ export function OrganisationReports({
           <article><span><UsersRound size={20} /></span><div><small>Collaborateurs</small><strong>{profiles.length}</strong></div></article>
           <article><span><UserCheck size={20} /></span><div><small>Présents sur la période</small><strong>{activeProfileCount}</strong></div></article>
           <article><span><Check size={20} /></span><div><small>Journées terminées</small><strong>{completedDays}</strong></div></article>
+          <article className={scheduleIssueCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>Écarts horaires</small><strong>{scheduleIssueCount}</strong></div></article>
           <article className={attentionCount ? "attention" : ""}><span><AlertTriangle size={20} /></span><div><small>À vérifier</small><strong>{attentionCount}</strong></div></article>
         </section>
       )}
@@ -493,6 +662,7 @@ export function OrganisationReports({
             ["paused", "En pause", pausedCount],
             ["completed", "Terminé", completedDays],
             ["not-started", "Pas commencé", notStartedCount],
+            ["late", "En retard", lateCount],
             ["attention", "À vérifier", attentionCount],
           ] as const).map(([value, label, count]) => <button className={`${value} ${status === value ? "active" : ""}`} type="button" aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }} key={value}><i /><span>{label}</span><strong>{count}</strong></button>)}
         </div>
@@ -508,7 +678,7 @@ export function OrganisationReports({
           return <button className={`live-person-row state-${row.status}`} type="button" onClick={() => setSelectedRowKey(row.key)} key={row.key}>
             <span className="live-person-avatar">{row.profile.fullname.slice(0, 2).toUpperCase()}<i /></span>
             <span className="live-person-identity"><strong>{row.profile.fullname}</strong><small>{[row.profile.poste, row.profile.service].filter(Boolean).join(" · ") || row.profile.identifiant}</small></span>
-            <span className={`live-person-status ${row.status}`}><i />{statusLabels[row.status]}</span>
+            <span className={`live-person-status ${(row.evaluation?.lateMinutes ?? 0) > 0 ? "late" : row.status}`}><i />{(row.evaluation?.lateMinutes ?? 0) > 0 ? `Retard · ${durationLabel(row.evaluation!.lateMinutes)}` : statusLabels[row.status]}</span>
             <span className="live-person-last"><LastIcon size={16} /><small>{lastEvent ? typeLabels[lastEvent.type] : "Aucun pointage"}</small><strong>{lastEvent ? timeLabel(lastEvent, timeZone) : "—"}</strong></span>
             <span className="live-person-worked"><small>Temps travaillé</small><strong>{durationLabel(row.worked)}</strong></span>
             <ChevronRight size={19} />
@@ -530,7 +700,7 @@ export function OrganisationReports({
         <div className="admin-report-filters">
           <label className="admin-search-filter"><Search size={16} /><span className="sr-only">Rechercher</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Nom, identifiant, poste ou service" /></label>
           <label><Building2 size={16} /><span className="sr-only">Service</span><select value={service} onChange={(event) => { setService(event.target.value); setPage(1); }}><option value="all">Tous les services</option>{services.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-          <label><Filter size={16} /><span className="sr-only">État</span><select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="all">Tous les états</option><option value="working">En service</option><option value="paused">En pause</option><option value="completed">Terminé</option><option value="not-started">Pas commencé</option><option value="attention">À vérifier</option></select></label>
+          <label><Filter size={16} /><span className="sr-only">État</span><select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="all">Tous les états</option><option value="working">En service</option><option value="paused">En pause</option><option value="completed">Terminé</option><option value="not-started">Pas commencé</option><option value="late">En retard</option><option value="attention">À vérifier</option></select></label>
         </div>
 
         {displayedRows.length === 0 ? (
@@ -561,6 +731,7 @@ export function OrganisationReports({
               <div><strong>{durationLabel(selectedRow.worked)}</strong><small>travaillées</small><i /><strong>{durationLabel(selectedRow.pause)}</strong><small>de pause</small></div>
             </header>
             <div className="admin-detail-date"><Clock3 size={16} /><span>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(new Date(`${selectedRow.day}T12:00:00`))}</span><strong className={`admin-detail-state ${selectedRow.status}`}>{statusLabels[selectedRow.status]}</strong></div>
+            {selectedRow.evaluation && <div className="admin-policy-comparison"><article><small>Horaire prévu</small><strong>{selectedRow.evaluation.schedule ? `${selectedRow.evaluation.schedule.startTime}–${selectedRow.evaluation.schedule.endTime}` : "Libre"}</strong></article><article><small>Temps attendu</small><strong>{durationLabel(selectedRow.evaluation.expectedMinutes)}</strong></article><article><small>Écart</small><strong>{selectedRow.evaluation.differenceMinutes > 0 ? "+" : selectedRow.evaluation.differenceMinutes < 0 ? "−" : ""}{durationLabel(Math.abs(selectedRow.evaluation.differenceMinutes))}</strong></article><article className={selectedRow.evaluation.label === "Conforme" ? "ok" : "issue"}><small>Lecture</small><strong>{selectedRow.evaluation.label}</strong></article></div>}
             <div className="activity-detail-events">
               {selectedRow.events.length ? [...selectedRow.events].sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at)).map((event) => {
                 const Icon = typeIcons[event.type];

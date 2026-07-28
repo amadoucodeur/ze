@@ -205,7 +205,9 @@ export async function createCollaboratorAction(
   }
 
   const now = new Date().toISOString();
-  const { error: profileError } = await admin.from("profiles").insert({
+  // Auth may create the shared ZeSuite profile through its database trigger.
+  // Upsert completes that row instead of failing on its primary key.
+  const { error: profileError } = await admin.from("profiles").upsert({
     id: createdUser.user.id,
     fullname: parsed.data.fullname,
     email: parsed.data.email,
@@ -221,9 +223,18 @@ export async function createCollaboratorAction(
       created_product: "zecontrol",
     },
     updated_at: now,
-  });
+  }, { onConflict: "id" });
   if (profileError) {
+    console.error("ZeControl collaborator profile creation failed", {
+      code: profileError.code,
+      message: profileError.message,
+      details: profileError.details,
+      hint: profileError.hint,
+    });
     await admin.auth.admin.deleteUser(createdUser.user.id);
+    if (profileError.code === "23505") {
+      return { message: "Cet email ou cet identifiant est déjà utilisé." };
+    }
     return { message: "Le profil n’a pas pu être créé. Aucun compte incomplet n’a été conservé." };
   }
 

@@ -33,7 +33,6 @@ export default async function AdminClockingPage() {
         organisationId={access.organisation.id}
         organisationName={access.organisation.name}
         fullname={access.profile.fullname}
-        policy={access.productProfile.policy}
         canRemote={access.productProfile.can_remote}
         timeZone={access.organisation.timezone}
         mode="manager"

@@ -54,29 +54,37 @@ export function ProfileSettingsForm({
     }
 
     setPending(true);
-    const { error } = await supabase
-      .schema("zecontrol")
-      .rpc("update_own_profile_settings", {
-        new_fullname: fullname.trim(),
-        new_phone: phone.trim(),
-        new_poste: poste.trim(),
-        new_service: service.trim(),
-      });
-    setPending(false);
+    try {
+      const { error } = await supabase
+        .schema("zecontrol")
+        .rpc("update_own_profile_settings", {
+          new_fullname: fullname.trim(),
+          new_phone: phone.trim(),
+          new_poste: poste.trim(),
+          new_service: service.trim(),
+        });
 
-    if (error) {
-      const sessionExpired = /authentication_required|jwt|session/i.test(error.message);
+      if (error) {
+        const accessExpired = /authentication_required|access_denied|jwt|session/i.test(error.message);
+        setFeedback({
+          type: "error",
+          message: accessExpired
+            ? "Votre session ou votre accès ZeControl a expiré. Reconnectez-vous."
+            : "Votre profil n’a pas pu être enregistré. Réessayez.",
+        });
+        return;
+      }
+
+      setFeedback({ type: "success", message: "Votre profil et votre configuration ont été mis à jour." });
+      router.refresh();
+    } catch {
       setFeedback({
         type: "error",
-        message: sessionExpired
-          ? "Votre session a expiré. Reconnectez-vous."
-          : "Votre profil n’a pas pu être enregistré. Réessayez.",
+        message: "La connexion a été interrompue. Vérifiez votre réseau puis réessayez.",
       });
-      return;
+    } finally {
+      setPending(false);
     }
-
-    setFeedback({ type: "success", message: "Votre profil et votre configuration ont été mis à jour." });
-    router.refresh();
   }
 
   return (

@@ -11,6 +11,11 @@ import {
 import { PasswordInput } from "@/components/auth/password-input";
 import { CollaboratorStatusForm } from "./collaborator-status-form";
 import { normalizeIdentifierPart } from "@/lib/identifiers";
+import {
+  offlinePolicyCopy,
+  offlinePolicyOptions,
+  type OfflinePolicy,
+} from "@/lib/offline-policy";
 
 type Collaborator = {
   id: string;
@@ -21,7 +26,7 @@ type Collaborator = {
   is_active: boolean;
   must_change_password: boolean;
   role: "admin" | "agent";
-  policy: "strict" | "flexible" | "free";
+  policy: OfflinePolicy;
   can_remote: boolean;
   poste: string | null;
   service: string | null;
@@ -58,9 +63,9 @@ export function CollaboratorManagement({ collaborator, organisationIdentifier }:
             <label className="team-field"><span>Poste</span><div><input name="poste" defaultValue={collaborator.poste ?? ""} /></div></label>
             <label className="team-field"><span>Service</span><div><input name="service" defaultValue={collaborator.service ?? ""} /></div></label>
             <label className="team-field"><span>Rôle ZeControl</span><div><select name="role" defaultValue={collaborator.role}><option value="agent">Agent</option><option value="admin">Administrateur</option></select></div></label>
-            <label className="team-field"><span>Politique</span><div><select name="policy" value={policy} onChange={(event) => setPolicy(event.target.value as typeof policy)}><option value="strict">Stricte</option><option value="flexible">Flexible</option><option value="free">Libre</option></select></div></label>
-            <div className={`team-policy-explanation policy-${policy}`}><strong>{policy === "strict" ? "Hors zone : refusé" : policy === "flexible" ? "Hors zone : validation requise" : "Accepté partout"}</strong><small>{policy === "strict" ? "La présence sur site est obligatoire." : policy === "flexible" ? "Un administrateur prend la décision." : "La zone ne bloque jamais le pointage."}</small></div>
-            <label className="team-check"><input type="checkbox" name="canRemote" defaultChecked={collaborator.can_remote} /><span><strong>Travail à distance autorisé</strong><small>Autorise le pointage distant selon les contrôles prévus.</small></span></label>
+            <label className="team-field"><span>En cas de coupure internet</span><div><select name="policy" value={policy} onChange={(event) => setPolicy(event.target.value as OfflinePolicy)}>{offlinePolicyOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></div></label>
+            <div className={`team-policy-explanation policy-${policy}`}><strong>{offlinePolicyCopy[policy].title}</strong><small>{offlinePolicyCopy[policy].description} Le mode hors connexion sera activé ultérieurement.</small></div>
+            <label className="team-check"><input type="checkbox" name="canRemote" defaultChecked={collaborator.can_remote} /><span><strong>Pointage à distance autorisé</strong><small>Permet de pointer en dehors du site. La position reste enregistrée.</small></span></label>
           </div>
           {updateState.message && <div className="form-message form-error">{updateState.message}</div>}
           {updateState.success && <div className="form-message form-success"><Check size={16} /> {updateState.success}</div>}

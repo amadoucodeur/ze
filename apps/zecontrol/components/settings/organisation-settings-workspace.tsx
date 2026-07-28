@@ -43,7 +43,15 @@ const identitySchema = z.object({
   name: z.string().trim().min(2, "Saisissez le nom de l’organisation.").max(100),
   email: z.union([z.literal(""), z.string().trim().email("Saisissez une adresse email valide.")]),
   phone: z.string().trim().max(30, "Ce numéro est trop long."),
-  websiteUrl: z.union([z.literal(""), z.string().trim().url("Utilisez une URL complète, par exemple https://entreprise.com.")]),
+  websiteUrl: z.string().trim().max(2048).refine((value) => {
+    if (!value) return true;
+    try {
+      const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+      return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+    } catch {
+      return false;
+    }
+  }, "Saisissez une adresse valide, par exemple entreprise.com."),
   description: z.string().trim().max(600, "La description ne doit pas dépasser 600 caractères."),
   logoUrl: z.union([z.literal(""), z.string().trim().url("Utilisez une URL complète pour le logo.")]),
 });
@@ -74,6 +82,16 @@ const commonTimezones = [
 function nullable(value: string) {
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function normalizedWebsite(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function displayedWebsite(value: string | null) {
+  return (value ?? "").replace(/^https:\/\//i, "");
 }
 
 export function OrganisationSettingsWorkspace({
@@ -153,7 +171,7 @@ export function OrganisationSettingsWorkspace({
         name: identityResult.data.name ?? "",
         email: identityResult.data.email ?? "",
         phone: identityResult.data.phone ?? "",
-        websiteUrl: identityResult.data.website_url ?? "",
+        websiteUrl: displayedWebsite(identityResult.data.website_url),
         description: identityResult.data.description ?? "",
         logoUrl: identityResult.data.logo_url ?? "",
       });
@@ -189,7 +207,7 @@ export function OrganisationSettingsWorkspace({
         name: parsed.data.name,
         email: nullable(parsed.data.email),
         phone: nullable(parsed.data.phone),
-        website_url: nullable(parsed.data.websiteUrl),
+        website_url: normalizedWebsite(parsed.data.websiteUrl),
         description: nullable(parsed.data.description),
         logo_url: nullable(parsed.data.logoUrl),
         updated_at: new Date().toISOString(),
@@ -317,7 +335,7 @@ export function OrganisationSettingsWorkspace({
             <label className="settings-field settings-field-wide"><span>Nom de l’organisation</span><div className="settings-input"><Building2 size={17} /><input value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} required maxLength={100} /></div></label>
             <label className="settings-field"><span>Email professionnel</span><div className="settings-input"><Mail size={17} /><input type="email" value={identity.email} onChange={(event) => setIdentity({ ...identity, email: event.target.value })} /></div></label>
             <label className="settings-field"><span>Téléphone</span><div className="settings-input"><Phone size={17} /><input type="tel" value={identity.phone} onChange={(event) => setIdentity({ ...identity, phone: event.target.value })} maxLength={30} /></div></label>
-            <label className="settings-field settings-field-wide"><span>Site web</span><div className="settings-input"><Globe2 size={17} /><input type="url" value={identity.websiteUrl} onChange={(event) => setIdentity({ ...identity, websiteUrl: event.target.value })} placeholder="https://entreprise.com" /></div></label>
+            <label className="settings-field settings-field-wide"><span>Site web</span><div className="settings-input"><Globe2 size={17} /><input type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" value={identity.websiteUrl} onChange={(event) => setIdentity({ ...identity, websiteUrl: event.target.value })} placeholder="entreprise.com" /></div><small className="settings-hint">https:// sera ajouté automatiquement si nécessaire.</small></label>
             <label className="settings-field settings-field-wide"><span>Description</span><div className="settings-textarea"><Building2 size={17} /><textarea value={identity.description} onChange={(event) => setIdentity({ ...identity, description: event.target.value })} rows={4} maxLength={600} placeholder="Présentez brièvement votre organisation." /></div></label>
             <div className="settings-field settings-field-wide">
               <span>Logo de l’organisation</span>
