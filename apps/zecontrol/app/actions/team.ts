@@ -77,6 +77,36 @@ function generatedPassword() {
   return `Zc9!${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
 
+type SupabaseFailure = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
+function creationReference() {
+  return crypto.randomUUID().slice(0, 8).toUpperCase();
+}
+
+function logCreationFailure(
+  reference: string,
+  stage: string,
+  error: SupabaseFailure | null | undefined,
+) {
+  console.error("ZeControl collaborator creation failed", {
+    reference,
+    stage,
+    code: error?.code,
+    message: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+  });
+}
+
+function creationErrorMessage(reference: string) {
+  return `Le collaborateur n’a pas pu être créé. Réessayez. Référence : ${reference}.`;
+}
+
 function productInput(formData: FormData) {
   return {
     role: formData.get("role"),
@@ -161,14 +191,25 @@ export async function createCollaboratorAction(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   const admin = createAdminClient();
+  const reference = creationReference();
   const loginIdentifier = composeLoginIdentifier(
     parsed.data.identifiant,
     manager.organisation.identifiant,
   );
-  const [{ data: identifierExists }, { data: emailExists }] = await Promise.all([
+  const [identifierLookup, emailLookup] = await Promise.all([
     admin.from("profiles").select("id").eq("identifiant", loginIdentifier).maybeSingle(),
     admin.from("profiles").select("id, organisation_id").eq("email", parsed.data.email).maybeSingle(),
   ]);
+  if (identifierLookup.error || emailLookup.error) {
+    logCreationFailure(
+      reference,
+      "uniqueness-check",
+      identifierLookup.error ?? emailLookup.error,
+    );
+    return { message: creationErrorMessage(reference) };
+  }
+  const identifierExists = identifierLookup.data;
+  const emailExists = emailLookup.data;
   const errors: Record<string, string[]> = {};
   if (identifierExists) errors.identifiant = ["Cet identifiant est déjà utilisé."];
   if (emailExists) {
@@ -191,6 +232,10 @@ export async function createCollaboratorAction(
     user_metadata: {
       full_name: parsed.data.fullname,
       organisation_id: manager.organisation.id,
+      // Le déclencheur Auth partagé avec ZeRecruit attend ce rôle public.
+      // Les droits ZeControl restent exclusivement dans zecontrol_role et
+      // zecontrol.profiles_configs.
+      role: "viewer",
       zecontrol_role: parsed.data.role,
       created_by: manager.profile.id,
       created_product: "zecontrol",
@@ -199,9 +244,11 @@ export async function createCollaboratorAction(
     },
   });
   if (authError || !createdUser.user) {
-    return authError?.message.toLowerCase().includes("already")
+    logCreationFailure(reference, "auth-user", authError);
+    const authMessage = authError?.message.toLowerCase() ?? "";
+    return authMessage.includes("already") || authMessage.includes("registered")
       ? { errors: { identifiant: ["Cet identifiant possède déjà un compte."] } }
-      : { message: "Le compte du collaborateur n’a pas pu être créé. Réessayez." };
+      : { message: creationErrorMessage(reference) };
   }
 
   const now = new Date().toISOString();
@@ -215,6 +262,7 @@ export async function createCollaboratorAction(
     identifiant: loginIdentifier,
     role: "viewer",
     organisation_id: manager.organisation.id,
+    zerecruit_access: false,
     must_change_password: true,
     is_active: true,
     meta_data: {
@@ -225,23 +273,18 @@ export async function createCollaboratorAction(
     updated_at: now,
   }, { onConflict: "id" });
   if (profileError) {
-    console.error("ZeControl collaborator profile creation failed", {
-      code: profileError.code,
-      message: profileError.message,
-      details: profileError.details,
-      hint: profileError.hint,
-    });
+    logCreationFailure(reference, "shared-profile", profileError);
     await admin.auth.admin.deleteUser(createdUser.user.id);
     if (profileError.code === "23505") {
       return { message: "Cet email ou cet identifiant est déjà utilisé." };
     }
-    return { message: "Le profil n’a pas pu être créé. Aucun compte incomplet n’a été conservé." };
+    return { message: creationErrorMessage(reference) };
   }
 
   const { error: configError } = await admin
     .schema("zecontrol")
     .from("profiles_configs")
-    .insert({
+    .upsert({
       id: createdUser.user.id,
       role: parsed.data.role,
       policy: parsed.data.policy,
@@ -250,11 +293,12 @@ export async function createCollaboratorAction(
       service: parsed.data.service || null,
       is_active: true,
       updated_at: now,
-    });
+    }, { onConflict: "id" });
   if (configError) {
+    logCreationFailure(reference, "zecontrol-profile", configError);
     await admin.from("profiles").delete().eq("id", createdUser.user.id);
     await admin.auth.admin.deleteUser(createdUser.user.id);
-    return { message: "L’accès ZeControl n’a pas pu être créé. Aucun compte incomplet n’a été conservé." };
+    return { message: creationErrorMessage(reference) };
   }
 
   revalidatePath("/dashboard/equipe");
@@ -332,6 +376,7 @@ export async function updateCollaboratorAction(
       full_name: parsed.data.fullname,
       contact_email: parsed.data.email,
       login_identifier: loginIdentifier,
+      role: target.role,
       zecontrol_role: parsed.data.role,
     },
   });

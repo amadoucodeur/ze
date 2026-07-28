@@ -37,6 +37,7 @@ export default async function TeamPage() {
     .from("profiles")
     .select("id, fullname, identifiant, email, role, is_active, last_login_at, created_at")
     .eq("organisation_id", profile.organisation_id)
+    .eq("zerecruit_access", true)
     .order("created_at", { ascending: true });
   const team = members ?? [];
   const collaborators = team.filter(member => member.role !== "owner");

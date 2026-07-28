@@ -34,6 +34,7 @@ export type CurrentProfile = {
   role: ProfileRole;
   organisation_id: string | null;
   is_active: boolean;
+  zerecruit_access: boolean;
   must_change_password: boolean;
   organisation: CurrentOrganisation | null;
 };
@@ -47,11 +48,13 @@ export const getCurrentProfile = cache(async (): Promise<CurrentProfile | null> 
   const admin = createAdminClient();
   const { data: profile, error } = await admin
     .from("profiles")
-    .select("id, fullname, identifiant, phone, email, role, organisation_id, is_active, must_change_password")
+    .select("id, fullname, identifiant, phone, email, role, organisation_id, is_active, zerecruit_access, must_change_password")
     .eq("id", userId)
     .maybeSingle();
 
-  if (error || !profile || !profile.is_active) return null;
+  if (error || !profile || !profile.is_active || !profile.zerecruit_access) {
+    return null;
+  }
 
   let organisation: CurrentOrganisation | null = null;
   if (profile.organisation_id) {

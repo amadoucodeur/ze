@@ -21,6 +21,7 @@ export default async function CollaboratorPage({ params, searchParams }: { param
     .select("id, fullname, email, phone, identifiant, role, is_active, must_change_password")
     .eq("id", id)
     .eq("organisation_id", profile.organisation_id)
+    .eq("zerecruit_access", true)
     .neq("id", profile.id)
     .neq("role", "owner")
     .maybeSingle();

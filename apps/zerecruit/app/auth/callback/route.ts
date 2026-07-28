@@ -23,11 +23,11 @@ export async function GET(request: Request) {
           await ensureProfile(data.user);
           const { data: profile, error: profileError } = await admin
             .from("profiles")
-            .select("role")
+            .select("role, zerecruit_access")
             .eq("id", data.user.id)
             .single();
 
-          if (profileError || profile.role !== "owner") {
+          if (profileError || profile.role !== "owner" || !profile.zerecruit_access) {
             await supabase.auth.signOut();
             return NextResponse.redirect(`${url.origin}/auth/auth-code-error?reason=login-method`);
           }
@@ -35,13 +35,14 @@ export async function GET(request: Request) {
         } else if (next === "/nouveau-mot-de-passe") {
           const { data: profile, error: profileError } = await admin
             .from("profiles")
-            .select("is_active, organisation_id, role")
+            .select("is_active, organisation_id, role, zerecruit_access")
             .eq("id", data.user.id)
             .single();
 
           if (
             profileError ||
             !profile.is_active ||
+            !profile.zerecruit_access ||
             profile.organisation_id === null ||
             profile.role === "owner"
           ) {

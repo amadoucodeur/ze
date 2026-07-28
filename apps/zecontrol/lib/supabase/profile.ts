@@ -40,8 +40,12 @@ export async function ensureProfile(user: User) {
     fullname: profileName(user),
     identifiant: profileIdentifier(user),
     role: "owner",
+    zerecruit_access: false,
     must_change_password: false,
-    meta_data: user.user_metadata,
+    meta_data: {
+      ...user.user_metadata,
+      created_product: "zecontrol",
+    },
   });
 
   if (error && error.code !== "23505") throw error;

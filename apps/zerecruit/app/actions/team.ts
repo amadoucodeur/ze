@@ -100,7 +100,7 @@ export async function createCollaboratorAction(
     return { message: "La période d’accès de l’organisation est terminée. Le propriétaire doit renouveler le plan avant d’ajouter un collaborateur." };
   }
   const plan = getPlan(organisation.plan);
-  const { count: activeSeatCount } = await admin.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", manager.organisation_id).eq("is_active", true);
+  const { count: activeSeatCount } = await admin.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", manager.organisation_id).eq("is_active", true).eq("zerecruit_access", true);
   if (plan.seatLimit !== null && (activeSeatCount ?? 0) >= plan.seatLimit) {
     return { message: `Le plan ${plan.name} inclut ${plan.seatLimit} utilisateur${plan.seatLimit > 1 ? "s" : ""}. Le propriétaire peut choisir un plan supérieur depuis la facturation.` };
   }
@@ -125,6 +125,7 @@ export async function createCollaboratorAction(
       full_name: parsed.data.fullname,
       organisation_id: manager.organisation_id,
       role: parsed.data.role,
+      zerecruit_access: true,
       created_by: manager.id,
       contact_email: parsed.data.email,
       login_identifier: loginIdentifier,
@@ -146,6 +147,7 @@ export async function createCollaboratorAction(
     identifiant: loginIdentifier,
     role: parsed.data.role,
     organisation_id: manager.organisation_id,
+    zerecruit_access: true,
     must_change_password: true,
     is_active: true,
     meta_data: {
@@ -189,6 +191,7 @@ export async function setCollaboratorStatusAction(targetId: string, active: bool
     .select("id, role, organisation_id")
     .eq("id", parsedTargetId.data)
     .eq("organisation_id", manager.organisation_id)
+    .eq("zerecruit_access", true)
     .maybeSingle();
 
   if (!target || target.role === "owner" || target.id === manager.id) return;
@@ -240,6 +243,7 @@ export async function updateCollaboratorAction(
     .select("id, fullname, email, identifiant, role, organisation_id")
     .eq("id", parsedTargetId.data)
     .eq("organisation_id", manager.organisation_id)
+    .eq("zerecruit_access", true)
     .maybeSingle();
   if (!target || target.role === "owner" || target.id === manager.id) return { message: "Ce collaborateur ne peut pas être modifié." };
 
@@ -265,6 +269,7 @@ export async function updateCollaboratorAction(
     full_name: parsed.data.fullname,
     organisation_id: manager.organisation_id,
     role: parsed.data.role,
+    zerecruit_access: true,
     contact_email: parsed.data.email,
     login_identifier: loginIdentifier,
   };
@@ -328,6 +333,7 @@ export async function resetCollaboratorPasswordAction(
     .select("id, identifiant, role, organisation_id, must_change_password")
     .eq("id", parsedTargetId.data)
     .eq("organisation_id", manager.organisation_id)
+    .eq("zerecruit_access", true)
     .maybeSingle();
   if (!target || target.role === "owner" || target.id === manager.id) return { message: "Ce collaborateur ne peut pas être modifié." };
 

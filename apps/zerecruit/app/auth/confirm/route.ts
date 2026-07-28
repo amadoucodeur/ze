@@ -15,13 +15,14 @@ export async function GET(request: NextRequest) {
         const admin = createAdminClient();
         const { data: profile, error: profileError } = await admin
           .from("profiles")
-          .select("is_active, organisation_id, role")
+          .select("is_active, organisation_id, role, zerecruit_access")
           .eq("id", data.user.id)
           .single();
 
         if (
           profileError ||
           !profile.is_active ||
+          !profile.zerecruit_access ||
           profile.organisation_id === null ||
           profile.role === "owner"
         ) {

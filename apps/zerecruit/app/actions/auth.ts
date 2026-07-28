@@ -69,7 +69,7 @@ export async function loginAction(_state: AuthState, formData: FormData): Promis
   const admin = createAdminClient();
   const { data: profile } = await admin
     .from("profiles")
-    .select("id, identifiant, is_active, must_change_password, organisation_id, role")
+    .select("id, identifiant, is_active, must_change_password, organisation_id, role, zerecruit_access")
     .eq("id", data.user.id)
     .maybeSingle();
   const isOrganisationMember =
@@ -77,8 +77,11 @@ export async function loginAction(_state: AuthState, formData: FormData): Promis
     profile?.role !== "owner" &&
     profile?.identifiant === parsed.data.identifiant;
 
-  if (!profile?.is_active || !isOrganisationMember) {
+  if (!profile?.is_active || !profile.zerecruit_access || !isOrganisationMember) {
     await supabase.auth.signOut();
+    if (profile?.is_active && !profile.zerecruit_access) {
+      return { message: "ZeRecruit n’est pas encore activé pour ce compte. Contactez votre administrateur." };
+    }
     return !profile?.is_active
       ? { message: "Votre accès a été suspendu par votre organisation. Contactez votre administrateur pour le réactiver." }
       : { message: "Cet accès n’est plus rattaché à une organisation. Contactez votre administrateur." };

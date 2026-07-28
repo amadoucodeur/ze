@@ -28,7 +28,7 @@ function capacity(active: boolean, used: number, limit: number | null, requested
 export async function getPlanUsage(organisationId: string): Promise<PlanUsage> {
   const admin = createAdminClient();
   const [seats, candidates, activeOffers, offerMatchings] = await Promise.all([
-    admin.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).eq("is_active", true),
+    admin.from("profiles").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).eq("is_active", true).eq("zerecruit_access", true),
     admin.from("candidats").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).is("archived_at", null),
     admin.from("offres").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).neq("status", "closed"),
     admin.from("plan_usage_events").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).eq("metric", "offer_matching"),
@@ -53,7 +53,7 @@ export async function getSeatCapacity(organisation: CurrentOrganisation, request
   const plan = getPlan(organisation.plan);
   const admin = createAdminClient();
   const { count } = await admin.from("profiles").select("id", { count: "exact", head: true })
-    .eq("organisation_id", organisation.id).eq("is_active", true);
+    .eq("organisation_id", organisation.id).eq("is_active", true).eq("zerecruit_access", true);
   return capacity(hasActivePlanAccess(organisation), count ?? 0, plan.seatLimit, requested);
 }
 

@@ -24,12 +24,29 @@ export async function ensureProfile(user: User) {
   const admin = createAdminClient();
   const { data: existing, error: lookupError } = await admin
     .from("profiles")
-    .select("id")
+    .select("id, role, zerecruit_access")
     .eq("id", user.id)
     .maybeSingle();
 
   if (lookupError) throw lookupError;
-  if (existing) return;
+  if (existing?.zerecruit_access) return;
+  if (existing) {
+    // Google is the owner-only ZeRecruit entry point. A collaborator created
+    // from another ZeSuite product must be activated by its organisation,
+    // never implicitly by attempting an owner login.
+    if (existing.role !== "owner") {
+      throw new Error("zerecruit_owner_access_required");
+    }
+    const { error } = await admin
+      .from("profiles")
+      .update({
+        zerecruit_access: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+    if (error) throw error;
+    return;
+  }
 
   const { error } = await admin.from("profiles").insert({
     id: user.id,
@@ -37,6 +54,7 @@ export async function ensureProfile(user: User) {
     fullname: profileName(user),
     identifiant: profileIdentifier(user),
     role: "owner",
+    zerecruit_access: true,
     must_change_password: false,
     meta_data: user.user_metadata,
   });
