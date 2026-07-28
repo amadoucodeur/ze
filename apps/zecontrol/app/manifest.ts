@@ -13,6 +13,10 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "any",
+    launch_handler: {
+      client_mode: "navigate-existing",
+    },
+    prefer_related_applications: false,
     background_color: "#f4f1e9",
     theme_color: "#080a0b",
     categories: ["business", "productivity"],
@@ -55,6 +59,19 @@ export default function manifest(): MetadataRoute.Manifest {
         short_name: "Activité",
         description: "Consulter mes journées et mes rapports",
         url: "/dashboard/mon-activite",
+        icons: [
+          {
+            src: "/pwa/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+          },
+        ],
+      },
+      {
+        name: "Mon profil",
+        short_name: "Profil",
+        description: "Ouvrir mes informations et mes droits",
+        url: "/dashboard/parametres/profil",
         icons: [
           {
             src: "/pwa/icon-192.png",

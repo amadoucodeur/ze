@@ -27,22 +27,31 @@ a { color: inherit; text-decoration: none; }
 button, a { -webkit-tap-highlight-color: transparent; }
 .shell { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
 
-.pwa-offline-banner {
-  min-height: 42px;
-  padding: calc(8px + env(safe-area-inset-top)) 18px 8px;
+.pwa-connectivity-toast {
+  width: fit-content;
+  max-width: calc(100% - 28px);
+  min-height: 52px;
+  padding: 9px 15px;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 9px;
   position: fixed;
   z-index: 1200;
-  inset: 0 0 auto;
-  color: #fff4e4;
-  background: #8d4f18;
-  box-shadow: 0 8px 24px rgba(8,10,11,.2);
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  color: #fff;
+  box-shadow: 0 18px 45px rgba(8,10,11,.24);
   font-size: 12px;
+  transform: translateX(-50%);
+  animation: pwa-connectivity-in .28s ease both;
 }
-.pwa-offline-banner strong { font-weight: 850; }
+.pwa-connectivity-toast.is-offline { background: #8d4f18; }
+.pwa-connectivity-toast.is-online { color: #e8fff9; background: #126a58; }
+.pwa-connectivity-toast > span { min-width: 0; display: grid; gap: 1px; }
+.pwa-connectivity-toast strong { font-size: 11px; font-weight: 850; }
+.pwa-connectivity-toast small { color: rgba(255,255,255,.78); font-size: 9px; }
 .pwa-install-prompt {
   width: min(430px, calc(100% - 28px));
   min-height: 72px;
@@ -99,13 +108,22 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @keyframes pwa-prompt-in {
   from { opacity: 0; transform: translateY(18px) scale(.98); }
 }
+@keyframes pwa-connectivity-in {
+  from { opacity: 0; transform: translate(-50%, 12px) scale(.98); }
+}
+
+@media (max-width: 820px) {
+  .pwa-connectivity-toast,
+  .pwa-install-prompt {
+    bottom: calc(var(--mobile-dock-height, 76px) + env(safe-area-inset-bottom) + 10px);
+  }
+}
 
 @media (max-width: 520px) {
-  .pwa-offline-banner { justify-content: flex-start; font-size: 11px; }
+  .pwa-connectivity-toast { max-width: calc(100% - 20px); }
   .pwa-install-prompt {
     width: calc(100% - 20px);
     right: 10px;
-    bottom: max(10px, env(safe-area-inset-bottom));
     grid-template-columns: 36px minmax(0, 1fr) auto 28px;
     gap: 8px;
     border-radius: 16px;
@@ -114,7 +132,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pwa-install-prompt { animation: none; }
+  .pwa-install-prompt,
+  .pwa-connectivity-toast { animation: none; }
 }
 
 .control-header {

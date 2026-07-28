@@ -16,8 +16,29 @@ const nextConfig: NextConfig = {
             value: "no-cache, no-store, must-revalidate",
           },
           {
+            key: "Service-Worker-Allowed",
+            value: "/",
+          },
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
             key: "Content-Security-Policy",
             value: "default-src 'self'; script-src 'self'",
+          },
+        ],
+      },
+      {
+        source: "/offline.html",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "no-cache, must-revalidate",
+          },
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
           },
         ],
       },
