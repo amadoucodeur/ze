@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Check, Clock3, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Clock3, ShieldCheck } from "lucide-react";
 import { ZeControlLogo, ZeSuiteLogo } from "@ze/ui-foundations/brands";
 
 const portalUrl = process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3002";
@@ -17,16 +17,14 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
 
         <div className="auth-brand-copy">
           <span className="auth-kicker">
-            <Clock3 size={15} /> Un accès ZeSuite
+            <Clock3 size={15} /> Temps & présences
           </span>
-          <h1>Le même compte.<br />Votre espace temps.</h1>
+          <h1>Votre temps.<br />Simplement.</h1>
           <p>
-            Utilisez votre identité ZeSuite existante ou créez votre espace
-            directement depuis ZeControl.
+            Connectez-vous pour pointer ou gérer votre équipe.
           </p>
           <div className="auth-benefits">
-            <span><Check size={16} /> Identité ZeSuite conservée</span>
-            <span><Check size={16} /> Accès séparé par produit</span>
+            <span><ShieldCheck size={16} /> Un accès adapté à votre rôle</span>
             <span><ShieldCheck size={16} /> Données isolées par organisation</span>
           </div>
         </div>

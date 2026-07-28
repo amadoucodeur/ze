@@ -13,7 +13,7 @@ export default async function ChangeRequestsPage() {
 
   return (
     <div className="dashboard-settings-page change-requests-page">
-      <header className="dashboard-content-header"><div><span>Validation des pointages</span><h1>Demandes</h1><p>Examinez les corrections et les pointages oubliés avant qu’ils ne modifient les journées de l’équipe.</p></div><div className="settings-page-avatar"><BellRing size={23} /></div></header>
+      <header className="dashboard-content-header"><div><span>À valider</span><h1>Demandes</h1><p>Acceptez ou refusez les corrections et les pointages oubliés.</p></div><div className="settings-page-avatar"><BellRing size={23} /></div></header>
       <ChangeRequestsReview organisationId={access.organisation.id} />
     </div>
   );

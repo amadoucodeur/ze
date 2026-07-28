@@ -22,13 +22,13 @@ export const metadata: Metadata = {
   applicationName: "ZeControl",
   manifest: "/manifest.webmanifest",
   description:
-    "Suivez les présences, les retards et le temps de travail avec une expérience simple sur mobile, tablette et desktop, même lorsque le réseau est instable.",
+    "Suivez les présences, les retards et le temps de travail avec une expérience simple sur mobile, tablette et desktop.",
   keywords: [
     "pointage",
     "gestion des présences",
     "temps de travail",
     "application RH",
-    "pointage hors connexion",
+    "suivi des équipes",
   ],
   openGraph: {
     type: "website",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     siteName: "ZeControl",
     title: "ZeControl — Le pointage fiable, partout où vous travaillez",
     description:
-      "Une expérience simple pour suivre les présences sur mobile, tablette et desktop, même avec un réseau instable.",
+      "Une expérience simple pour suivre les présences sur mobile, tablette et desktop.",
     images: [
       {
         url: "/og.png",
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "ZeControl — Le pointage fiable, partout où vous travaillez",
     description:
-      "Une expérience simple pour suivre les présences, même avec un réseau instable.",
+      "Une expérience simple pour suivre les présences et le temps de travail.",
     images: ["/og.png"],
   },
   appleWebApp: {

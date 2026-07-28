@@ -38,9 +38,9 @@ function DashboardNavigation({
 }) {
   return (
     <>
-      <DashboardNavLink href="/dashboard" label="Accueil" icon="home" match="exact" />
+      <DashboardNavLink href="/dashboard" label="En direct" icon="home" match="exact" />
       {organisationName && canManageTeam && (
-        <DashboardNavLink href="/dashboard/pointage" label="Pointage" icon="clocking" />
+        <DashboardNavLink href="/dashboard/pointage" label="Mon pointage" icon="clocking" />
       )}
       {organisationName && canManageTeam && (
         <DashboardNavLink href="/dashboard/rapports" label="Rapports" icon="reports" />
@@ -152,7 +152,7 @@ export function DashboardShell({
         </Link>
       </header>
       <nav className="dashboard-mobile-dock" aria-label="Navigation mobile principale">
-        <DashboardNavLink href="/dashboard" label="Accueil" icon="home" match="exact" />
+        <DashboardNavLink href="/dashboard" label="Direct" icon="home" match="exact" />
         {organisationName && canManageTeam && (
           <DashboardNavLink href="/dashboard/pointage" label="Pointer" icon="clocking" />
         )}

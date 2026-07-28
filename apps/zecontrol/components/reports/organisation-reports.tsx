@@ -5,7 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Building2,
+  CalendarDays,
+  CalendarX2,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -19,6 +22,7 @@ import {
   RotateCcw,
   Search,
   Settings2,
+  Timer,
   UserCheck,
   UsersRound,
   X,
@@ -27,8 +31,15 @@ import { createClient } from "@/lib/supabase/client";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
 import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
 import { dateKey, defaultPeriodDates, periodLabel, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
-import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
-import { currentWorkPolicyMessage, evaluateWorkday } from "@/lib/work-policy-evaluation";
+import { scheduleForDay } from "@/lib/work-policy";
+import { currentWorkPolicyMessage, evaluateWorkday, weekdayForDate } from "@/lib/work-policy-evaluation";
+import {
+  resolveReportWorkPolicy,
+  type ReportTeamMember,
+  type ReportWorkPolicy,
+  type ReportWorkPolicyAssignment,
+  type ReportWorkPolicyVersion,
+} from "@/lib/reports/work-policy-resolution";
 
 type EventType = "start" | "break" | "resume" | "end";
 type EventStatus = "pending" | "accepted" | "rejected" | "cancelled";
@@ -49,6 +60,7 @@ type ReportProfile = {
   id: string;
   role: "owner" | "admin" | "agent";
   is_active: boolean;
+  activated_at?: string;
   poste: string | null;
   service: string | null;
   fullname: string;
@@ -59,21 +71,15 @@ type ReportColumn =
   | "collaborator"
   | "poste"
   | "service"
-  | "day"
-  | "schedule"
+  | "days"
   | "start"
-  | "late"
   | "firstBreak"
   | "firstResume"
   | "end"
-  | "worked"
-  | "expected"
-  | "difference"
-  | "overtime"
-  | "pause"
-  | "compliance"
-  | "status"
-  | "events";
+  | "breakCount"
+  | "pauseDuration"
+  | "late"
+  | "balance";
 
 const PAGE_SIZE = 50;
 const typeLabels: Record<EventType, string> = {
@@ -94,68 +100,31 @@ const columnOrder: ReportColumn[] = [
   "collaborator",
   "poste",
   "service",
-  "day",
-  "schedule",
+  "days",
   "start",
-  "late",
   "firstBreak",
   "firstResume",
   "end",
-  "worked",
-  "expected",
-  "difference",
-  "overtime",
-  "pause",
-  "compliance",
-  "status",
-  "events",
+  "breakCount",
+  "pauseDuration",
+  "late",
+  "balance",
 ];
 const columnLabels: Record<ReportColumn, string> = {
   collaborator: "Nom complet",
   poste: "Poste",
   service: "Service",
-  day: "Journée",
-  schedule: "Horaire prévu",
+  days: "Journées",
   start: "Début de service",
-  late: "Retard",
   firstBreak: "Première pause",
   firstResume: "Première reprise",
   end: "Fin de service",
-  worked: "Temps travaillé",
-  expected: "Temps attendu",
-  difference: "Écart",
-  overtime: "Heures sup.",
-  pause: "Temps de pause",
-  compliance: "Lecture horaire",
-  status: "État",
-  events: "Pointages",
+  breakCount: "Nombre de pauses",
+  pauseDuration: "Temps de pause",
+  late: "Retard",
+  balance: "Solde",
 };
-const reportDefaultColumns = columnOrder.filter((column) => column !== "events");
-const liveDefaultColumns: ReportColumn[] = [
-  "collaborator",
-  "poste",
-  "service",
-  "schedule",
-  "start",
-  "firstBreak",
-  "worked",
-  "compliance",
-  "status",
-];
-
-type ReportWorkPolicy = { id: string; is_enabled: boolean; is_default: boolean };
-type ReportWorkPolicyVersion = { policy_id: string; definition: unknown; effective_from: string; version_number: number };
-type ReportWorkPolicyAssignment = {
-  policy_id: string;
-  target_type: "organisation" | "service" | "team" | "profile";
-  service_name: string | null;
-  team_id: string | null;
-  profile_id: string | null;
-  valid_from: string;
-  valid_until: string | null;
-  priority: number;
-};
-type ReportTeamMember = { team_id: string; profile_id: string; is_active: boolean };
+const reportDefaultColumns = [...columnOrder];
 
 function durationLabel(minutes: number) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}`;
@@ -203,6 +172,56 @@ function pauseMinutes(events: ReportEvent[], now: number, timeZone: string) {
   return Math.floor(total / 60_000);
 }
 
+function breakCount(events: ReportEvent[]) {
+  return activeEvents(events).filter((event) => event.type === "break").length;
+}
+
+function average(values: number[]) {
+  return values.length
+    ? Math.round(values.reduce((total, value) => total + value, 0) / values.length)
+    : null;
+}
+
+function eventMinuteOfDay(event: ReportEvent | undefined, timeZone: string) {
+  if (!event) return null;
+  const parts = new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+  }).formatToParts(new Date(event.pointed_at));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+function averageTime(values: Array<number | null>) {
+  const times = values.filter((value): value is number => value !== null);
+  if (!times.length) return null;
+  const vectors = times.reduce(
+    (result, value) => {
+      const angle = (value / (24 * 60)) * Math.PI * 2;
+      return {
+        x: result.x + Math.cos(angle),
+        y: result.y + Math.sin(angle),
+      };
+    },
+    { x: 0, y: 0 },
+  );
+  const angle = Math.atan2(vectors.y / times.length, vectors.x / times.length);
+  return Math.round((((angle < 0 ? angle + Math.PI * 2 : angle) / (Math.PI * 2)) * 24 * 60)) % (24 * 60);
+}
+
+function minuteOfDayLabel(value: number | null) {
+  if (value === null) return "—";
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function decimalLabel(value: number | null) {
+  if (value === null) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(".", ",");
+}
+
 function timeLabel(event: ReportEvent | undefined, timeZone: string) {
   return event
     ? new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(event.pointed_at))
@@ -224,6 +243,16 @@ function nextDateKey(value: string) {
   const date = new Date(`${value}T12:00:00`);
   date.setDate(date.getDate() + 1);
   return dateKey(date);
+}
+
+function dateKeysBetween(start: string, end: string) {
+  const result: string[] = [];
+  let current = start;
+  while (current <= end && result.length < 1500) {
+    result.push(current);
+    current = nextDateKey(current);
+  }
+  return result;
 }
 
 export function OrganisationReports({
@@ -259,9 +288,11 @@ export function OrganisationReports({
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>("connecting");
   const [clockTick, setClockTick] = useState(() => Date.now());
-  const [visibleColumns, setVisibleColumns] = useState<ReportColumn[]>(view === "live" ? liveDefaultColumns : reportDefaultColumns);
+  const [visibleColumns, setVisibleColumns] = useState<ReportColumn[]>(reportDefaultColumns);
   const [page, setPage] = useState(1);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [expandedProfileIds, setExpandedProfileIds] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -430,49 +461,34 @@ export function OrganisationReports({
       : columnOrder.filter((item) => item === column || columns.includes(item)));
   }
 
+  function focusCollaborator(profileId: string) {
+    setSelectedProfileId(profileId);
+    setQuery("");
+    setPage(1);
+    setExpandedProfileIds([profileId]);
+  }
+
+  function toggleCollaborator(profileId: string) {
+    setExpandedProfileIds((current) =>
+      current.includes(profileId)
+        ? current.filter((id) => id !== profileId)
+        : [...current, profileId],
+    );
+  }
+
   const rows = useMemo(() => {
     const groups = new Map<string, ReportEvent[]>();
-    const policyById = new Map(workPolicies.map((policy) => [policy.id, policy]));
-    const teamsByProfile = new Map<string, Set<string>>();
-    for (const member of workTeamMembers) {
-      if (!member.is_active) continue;
-      const teamIds = teamsByProfile.get(member.profile_id) ?? new Set<string>();
-      teamIds.add(member.team_id);
-      teamsByProfile.set(member.profile_id, teamIds);
-    }
-    const defaultPolicy = workPolicies.find((policy) => policy.is_default && policy.is_enabled);
 
-    function resolveDefinition(profile: ReportProfile, day: string): WorkPolicyDefinition | null {
-      const profileTeams = teamsByProfile.get(profile.id) ?? new Set<string>();
-      const matching = workPolicyAssignments
-        .filter((assignment) => {
-          const policy = policyById.get(assignment.policy_id);
-          if (!policy?.is_enabled) return false;
-          if (assignment.valid_from > day || (assignment.valid_until && assignment.valid_until < day)) return false;
-          if (assignment.target_type === "profile") return assignment.profile_id === profile.id;
-          if (assignment.target_type === "team") return Boolean(assignment.team_id && profileTeams.has(assignment.team_id));
-          if (assignment.target_type === "service") {
-            return Boolean(
-              assignment.service_name &&
-              profile.service &&
-              assignment.service_name.trim().toLocaleLowerCase("fr") === profile.service.trim().toLocaleLowerCase("fr"),
-            );
-          }
-          return assignment.target_type === "organisation";
-        })
-        .sort((a, b) => {
-          const ranks = { organisation: 100, service: 200, team: 300, profile: 400 };
-          return (ranks[b.target_type] + b.priority) - (ranks[a.target_type] + a.priority) ||
-            b.valid_from.localeCompare(a.valid_from);
-        });
-      const policyId = matching[0]?.policy_id ?? defaultPolicy?.id;
-      if (!policyId) return null;
-      const version = workPolicyVersions
-        .filter((candidate) => candidate.policy_id === policyId && candidate.effective_from <= day)
-        .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.version_number - a.version_number)[0];
-      return isWorkPolicyDefinition(version?.definition)
-        ? { ...version.definition, daySchedules: version.definition.daySchedules ?? {} }
-        : null;
+    function resolveDefinition(profile: ReportProfile, day: string) {
+      return resolveReportWorkPolicy({
+        profileId: profile.id,
+        service: profile.service,
+        day,
+        policies: workPolicies,
+        versions: workPolicyVersions,
+        assignments: workPolicyAssignments,
+        teamMembers: workTeamMembers,
+      });
     }
 
     const scopedEvents = events.filter((event) => period === "all" ||
@@ -485,21 +501,32 @@ export function OrganisationReports({
       groups.set(key, current);
     }
 
+    if (view === "reports" && start && end) {
+      const today = dateKey(new Date(clockTick), timeZone);
+      const lastRelevantDay = end < today ? end : today;
+      for (const day of dateKeysBetween(start, lastRelevantDay)) {
+        for (const profile of profiles) {
+          const activationDay = profile.activated_at
+            ? dateKey(new Date(profile.activated_at), timeZone)
+            : null;
+          if (activationDay && day < activationDay) continue;
+          const definition = resolveDefinition(profile, day);
+          const scheduled = definition
+            ? scheduleForDay(definition, weekdayForDate(day))
+            : null;
+          if (start !== end && !scheduled) continue;
+          const key = `${profile.id}:${day}`;
+          if (!groups.has(key)) groups.set(key, []);
+        }
+      }
+    }
+
     const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
     const result = Array.from(groups, ([key, dayEvents]) => {
       const [profileId, day] = key.split(":");
       const profile = profileById.get(profileId);
       return profile ? { key, day, profile, events: dayEvents } : null;
     }).filter((row): row is NonNullable<typeof row> => Boolean(row));
-
-    if (start && start === end) {
-      const existingProfiles = new Set(result.map((row) => row.profile.id));
-      for (const profile of profiles) {
-        if (!existingProfiles.has(profile.id)) {
-          result.push({ key: `${profile.id}:${start}`, day: start, profile, events: [] });
-        }
-      }
-    }
 
     return result
       .map((row) => {
@@ -523,15 +550,24 @@ export function OrganisationReports({
                 timeZone,
               })
             : null;
+        const first = valid.find((event) => event.type === "start");
+        const firstBreak = valid.find((event) => event.type === "break");
+        const firstResume = valid.find((event) => event.type === "resume");
+        const endEvent = [...valid].reverse().find((event) => event.type === "end");
         return {
           ...row,
           valid,
-          first: valid.find((event) => event.type === "start"),
-          firstBreak: valid.find((event) => event.type === "break"),
-          firstResume: valid.find((event) => event.type === "resume"),
-          end: [...valid].reverse().find((event) => event.type === "end"),
+          first,
+          firstBreak,
+          firstResume,
+          end: endEvent,
           worked: workedMinutes(row.events, clockTick, timeZone),
           pause: pauseMinutes(row.events, clockTick, timeZone),
+          breaks: breakCount(row.events),
+          isPotentialAbsence:
+            row.day < dateKey(new Date(clockTick), timeZone) &&
+            Boolean((evaluation?.expectedMinutes ?? 0) > 0) &&
+            !first,
           status: rowStatus(row.events),
           definition,
           evaluation,
@@ -539,13 +575,14 @@ export function OrganisationReports({
         };
       })
       .sort((a, b) => b.day.localeCompare(a.day) || a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
-  }, [clockTick, end, events, period, profiles, start, timeZone, workPolicies, workPolicyAssignments, workPolicyVersions, workTeamMembers]);
+  }, [clockTick, end, events, period, profiles, start, timeZone, view, workPolicies, workPolicyAssignments, workPolicyVersions, workTeamMembers]);
 
   const services = [...new Set(profiles.map((profile) => profile.service).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, "fr"));
   const normalizedQuery = query.trim().toLocaleLowerCase("fr");
-  const filteredRows = rows.filter((row) => {
+  const filteredDayRows = rows.filter((row) => {
     const searchable = `${row.profile.fullname} ${row.profile.identifiant} ${row.profile.poste ?? ""} ${row.profile.service ?? ""}`.toLocaleLowerCase("fr");
-    return (!normalizedQuery || searchable.includes(normalizedQuery)) &&
+    return (!selectedProfileId || row.profile.id === selectedProfileId) &&
+      (!normalizedQuery || searchable.includes(normalizedQuery)) &&
       (service === "all" || row.profile.service === service) &&
       (
         status === "all" ||
@@ -556,55 +593,160 @@ export function OrganisationReports({
   });
 
   const rangeLabel = periodLabel(period, start, end);
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const displayedRows = filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const isSingleDay = Boolean(start && start === end);
+  const collaboratorSummaries = useMemo(() => {
+    const daysByProfile = new Map<string, typeof rows>();
+    for (const row of filteredDayRows) {
+      const current = daysByProfile.get(row.profile.id) ?? [];
+      current.push(row);
+      daysByProfile.set(row.profile.id, current);
+    }
+    return profiles
+      .filter((profile) => {
+        const searchable = `${profile.fullname} ${profile.identifiant} ${profile.poste ?? ""} ${profile.service ?? ""}`.toLocaleLowerCase("fr");
+        return (!selectedProfileId || profile.id === selectedProfileId) &&
+          (!normalizedQuery || searchable.includes(normalizedQuery)) &&
+          (service === "all" || profile.service === service) &&
+          (status === "all" || daysByProfile.has(profile.id));
+      })
+      .map((profile) => {
+        const days = [...(daysByProfile.get(profile.id) ?? [])].sort((a, b) => a.day.localeCompare(b.day));
+        const workedDays = days.filter((day) => Boolean(day.first));
+        const expectedDays = days.filter((day) => (day.evaluation?.expectedMinutes ?? 0) > 0);
+        const lateDays = days.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
+        const balanceDays = days.filter((day) => day.evaluation && day.end);
+        return {
+          profile,
+          days,
+          workedDays: workedDays.length,
+          expectedDays: expectedDays.length,
+          totalWorked: days.reduce((total, day) => total + day.worked, 0),
+          totalExpected: days.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0),
+          totalLate: days.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0),
+          totalPause: days.reduce((total, day) => total + day.pause, 0),
+          totalBreaks: days.reduce((total, day) => total + day.breaks, 0),
+          totalOvertime: days.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0),
+          absences: days.filter((day) => day.isPotentialAbsence).length,
+          averageWorked: average(workedDays.map((day) => day.worked)),
+          averageLate: average(lateDays.map((day) => day.evaluation?.lateMinutes ?? 0)),
+          averagePause: average(workedDays.map((day) => day.pause)),
+          averageBreaks: average(workedDays.map((day) => day.breaks)),
+          averageBalance: average(balanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0)),
+          averageStart: averageTime(workedDays.map((day) => eventMinuteOfDay(day.first, timeZone))),
+          averageFirstBreak: averageTime(workedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone))),
+          averageFirstResume: averageTime(workedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone))),
+          averageEnd: averageTime(workedDays.map((day) => eventMinuteOfDay(day.end, timeZone))),
+        };
+      })
+      .filter((summary) => status === "all" || summary.days.length > 0)
+      .sort((a, b) => a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
+  }, [filteredDayRows, normalizedQuery, profiles, selectedProfileId, service, status, timeZone]);
+
+  const reportTotalPages = Math.max(1, Math.ceil(collaboratorSummaries.length / PAGE_SIZE));
+  const reportCurrentPage = Math.min(page, reportTotalPages);
+  const displayedSummaries = collaboratorSummaries.slice((reportCurrentPage - 1) * PAGE_SIZE, reportCurrentPage * PAGE_SIZE);
+  const liveTotalPages = Math.max(1, Math.ceil(filteredDayRows.length / PAGE_SIZE));
+  const liveCurrentPage = Math.min(page, liveTotalPages);
+  const displayedDayRows = filteredDayRows.slice((liveCurrentPage - 1) * PAGE_SIZE, liveCurrentPage * PAGE_SIZE);
   const selectedRow = selectedRowKey ? rows.find((row) => row.key === selectedRowKey) ?? null : null;
-  const activeProfileCount = new Set(rows.filter((row) => row.valid.length > 0).map((row) => row.profile.id)).size;
+  const selectedProfile = selectedProfileId
+    ? profiles.find((profile) => profile.id === selectedProfileId) ?? null
+    : null;
   const completedDays = rows.filter((row) => row.status === "completed").length;
   const attentionCount = rows.filter((row) => row.status === "attention").length;
   const workingCount = rows.filter((row) => row.status === "working").length;
   const pausedCount = rows.filter((row) => row.status === "paused").length;
   const notStartedCount = rows.filter((row) => row.status === "not-started").length;
   const lateCount = rows.filter((row) => (row.evaluation?.lateMinutes ?? 0) > 0 || row.policyMessage?.tone === "attention").length;
-  const scheduleIssueCount = rows.filter((row) =>
-    row.evaluation &&
-    !["Conforme", "À venir", "Non planifiée"].includes(row.evaluation.label),
-  ).length;
+  const aggregateDays = filteredDayRows;
+  const aggregateWorkedDays = aggregateDays.filter((day) => Boolean(day.first));
+  const aggregateLateDays = aggregateDays.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
+  const aggregateOvertimeDays = aggregateDays.filter((day) => (day.evaluation?.overtimeMinutes ?? 0) > 0);
+  const aggregateTotalWorked = aggregateDays.reduce((total, day) => total + day.worked, 0);
+  const aggregateTotalExpected = aggregateDays.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0);
+  const aggregateTotalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0);
+  const aggregateTotalOvertime = aggregateDays.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0);
+  const aggregateBreaks = aggregateDays.reduce((total, day) => total + day.breaks, 0);
+  const aggregateAbsences = aggregateDays.filter((day) => day.isPotentialAbsence).length;
+  const aggregateAverageWorked = average(aggregateWorkedDays.map((day) => day.worked));
+  const aggregateAverageLate = average(aggregateLateDays.map((day) => day.evaluation?.lateMinutes ?? 0));
+  const aggregateAveragePause = average(aggregateWorkedDays.map((day) => day.pause));
+  const aggregateAverageOvertime = average(aggregateOvertimeDays.map((day) => day.evaluation?.overtimeMinutes ?? 0));
+  const aggregateAverageStart = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.first, timeZone)));
+  const aggregateAverageFirstBreak = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone)));
+  const aggregateAverageFirstResume = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone)));
+  const aggregateAverageEnd = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.end, timeZone)));
 
-  function cellValue(row: (typeof rows)[number], column: ReportColumn) {
-    if (column === "collaborator") return row.profile.fullname;
-    if (column === "poste") return row.profile.poste || "—";
-    if (column === "service") return row.profile.service || "—";
-    if (column === "day") return new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${row.day}T12:00:00`));
-    if (column === "schedule") return row.evaluation?.schedule ? `${row.evaluation.schedule.startTime}–${row.evaluation.schedule.endTime}` : "—";
+  function balanceLabel(value: number | null | undefined) {
+    if (value === null || value === undefined) return "—";
+    return `${value > 0 ? "+" : value < 0 ? "−" : ""}${durationLabel(Math.abs(value))}`;
+  }
+
+  function summaryCellValue(summary: (typeof collaboratorSummaries)[number], column: ReportColumn) {
+    const day = summary.days[0];
+    if (column === "collaborator") return summary.profile.fullname;
+    if (column === "poste") return summary.profile.poste || "—";
+    if (column === "service") return summary.profile.service || "—";
+    if (column === "days") return isSingleDay ? (day?.first ? "1" : "0") : `${summary.workedDays}/${summary.expectedDays || summary.days.length}`;
+    if (column === "start") return isSingleDay ? timeLabel(day?.first, timeZone) : minuteOfDayLabel(summary.averageStart);
+    if (column === "firstBreak") return isSingleDay ? timeLabel(day?.firstBreak, timeZone) : minuteOfDayLabel(summary.averageFirstBreak);
+    if (column === "firstResume") return isSingleDay ? timeLabel(day?.firstResume, timeZone) : minuteOfDayLabel(summary.averageFirstResume);
+    if (column === "end") return isSingleDay ? timeLabel(day?.end, timeZone) : minuteOfDayLabel(summary.averageEnd);
+    if (column === "breakCount") return isSingleDay ? String(day?.breaks ?? 0) : decimalLabel(summary.averageBreaks);
+    if (column === "pauseDuration") return isSingleDay ? durationLabel(day?.pause ?? 0) : summary.averagePause === null ? "—" : durationLabel(summary.averagePause);
+    if (column === "late") return isSingleDay ? balanceLabel(day?.evaluation?.lateMinutes || null) : summary.averageLate === null ? "—" : durationLabel(summary.averageLate);
+    return isSingleDay ? balanceLabel(day?.evaluation?.differenceMinutes) : balanceLabel(summary.averageBalance);
+  }
+
+  function dayCellValue(row: (typeof rows)[number], column: Exclude<ReportColumn, "collaborator" | "poste" | "service" | "days">) {
     if (column === "start") return timeLabel(row.first, timeZone);
-    if (column === "late") return row.evaluation?.lateMinutes ? durationLabel(row.evaluation.lateMinutes) : "—";
     if (column === "firstBreak") return timeLabel(row.firstBreak, timeZone);
     if (column === "firstResume") return timeLabel(row.firstResume, timeZone);
     if (column === "end") return timeLabel(row.end, timeZone);
-    if (column === "worked") return durationLabel(row.worked);
-    if (column === "expected") return row.evaluation ? durationLabel(row.evaluation.expectedMinutes) : "—";
-    if (column === "difference") {
-      if (!row.evaluation) return "—";
-      const difference = row.evaluation.differenceMinutes;
-      return `${difference > 0 ? "+" : difference < 0 ? "−" : ""}${durationLabel(Math.abs(difference))}`;
-    }
-    if (column === "overtime") return row.evaluation?.overtimeMinutes ? durationLabel(row.evaluation.overtimeMinutes) : "—";
-    if (column === "pause") return durationLabel(row.pause);
-    if (column === "compliance") return row.evaluation?.label ?? "Non configuré";
-    if (column === "events") return String(row.events.length);
-    return statusLabels[row.status];
+    if (column === "breakCount") return String(row.breaks);
+    if (column === "pauseDuration") return durationLabel(row.pause);
+    if (column === "late") return row.evaluation?.lateMinutes ? durationLabel(row.evaluation.lateMinutes) : "—";
+    return balanceLabel(row.evaluation?.differenceMinutes);
   }
 
-  const exportHeaders = visibleColumns.map((column) => columnLabels[column]);
-  const exportRows = filteredRows.map((row) => visibleColumns.map((column) => cellValue(row, column)));
+  function summaryColumnLabel(column: ReportColumn) {
+    if (isSingleDay) return columnLabels[column];
+    return ({
+      ...columnLabels,
+      start: "Début moyen",
+      firstBreak: "Première pause moyenne",
+      firstResume: "Première reprise moyenne",
+      end: "Fin moyenne",
+      breakCount: "Nombre moyen de pauses",
+      pauseDuration: "Temps de pause moyen",
+      late: "Retard moyen",
+      balance: "Solde moyen",
+    })[column];
+  }
 
-  async function handleExport(format: "pdf" | "excel" | "csv") {
-    const filename = `zecontrol-organisation-${start || "tout"}-${end || "tout"}`;
-    if (format === "csv") exportCsv(filename, exportHeaders, exportRows);
-    if (format === "excel") await exportExcel(filename, `Rapport · ${organisationName}`, exportHeaders, exportRows);
-    if (format === "pdf") await exportPdf(filename, `Rapport · ${organisationName}`, `${rangeLabel} · ${timeZone}`, exportHeaders, exportRows);
+  async function handleExport(format: "pdf" | "excel" | "csv", scope: "summary" | "detail" = "summary") {
+    const filename = `zecontrol-${scope === "summary" ? "resume" : "detail"}-${start || "tout"}-${end || "tout"}`;
+    const summaryHeaders = visibleColumns.map(summaryColumnLabel);
+    const summaryRows = collaboratorSummaries.map((summary) => visibleColumns.map((column) => summaryCellValue(summary, column)));
+    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard", "Solde", "Chronologie"];
+    const detailRows = filteredDayRows.map((row) => [
+      row.profile.fullname,
+      new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(`${row.day}T12:00:00`)),
+      dayCellValue(row, "start"),
+      dayCellValue(row, "firstBreak"),
+      dayCellValue(row, "firstResume"),
+      dayCellValue(row, "end"),
+      dayCellValue(row, "breakCount"),
+      dayCellValue(row, "pauseDuration"),
+      dayCellValue(row, "late"),
+      dayCellValue(row, "balance"),
+      activeEvents(row.events).map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
+    ]);
+    const headers = scope === "summary" ? summaryHeaders : detailHeaders;
+    const exportRows = scope === "summary" ? summaryRows : detailRows;
+    if (format === "csv") exportCsv(filename, headers, exportRows);
+    if (format === "excel") await exportExcel(filename, `${scope === "summary" ? "Résumé" : "Détail"} · ${organisationName}`, headers, exportRows);
+    if (format === "pdf") await exportPdf(filename, `${scope === "summary" ? "Résumé" : "Détail"} · ${organisationName}`, `${rangeLabel} · ${timeZone}`, headers, exportRows);
   }
 
   if (loading) return <div className="settings-loading"><LoaderCircle className="spin" size={22} /> Chargement des rapports...</div>;
@@ -621,6 +763,7 @@ export function OrganisationReports({
           onStartChange={(value) => { setStart(value); setPage(1); setRefreshing(true); }}
           onEndChange={(value) => { setEnd(value); setPage(1); setRefreshing(true); }}
           onExport={handleExport}
+          exportScopes
         />
       </div>}
       <div className="admin-report-freshness">
@@ -640,19 +783,27 @@ export function OrganisationReports({
           <article className={attentionCount ? "attention" : ""}><span><AlertTriangle size={20} /></span><div><small>À vérifier</small><strong>{attentionCount}</strong></div></article>
         </section>
       ) : (
-        <section className="report-kpis">
-          <article><span><UsersRound size={20} /></span><div><small>Collaborateurs</small><strong>{profiles.length}</strong></div></article>
-          <article><span><UserCheck size={20} /></span><div><small>Présents sur la période</small><strong>{activeProfileCount}</strong></div></article>
-          <article><span><Check size={20} /></span><div><small>Journées terminées</small><strong>{completedDays}</strong></div></article>
-          <article className={scheduleIssueCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>Écarts horaires</small><strong>{scheduleIssueCount}</strong></div></article>
-          <article className={attentionCount ? "attention" : ""}><span><AlertTriangle size={20} /></span><div><small>À vérifier</small><strong>{attentionCount}</strong></div></article>
+        <section className="report-summary-grid" aria-label="Synthèse des données filtrées">
+          <article className="primary"><span><Timer size={21} /></span><div><small>Temps réalisé</small><strong>{durationLabel(aggregateTotalWorked)} <em>/ {durationLabel(aggregateTotalExpected)}</em></strong><p>{aggregateTotalWorked >= aggregateTotalExpected ? "+" : "−"}{durationLabel(Math.abs(aggregateTotalWorked - aggregateTotalExpected))} sur le temps attendu</p></div></article>
+          <article><span><Clock3 size={20} /></span><div><small>Moyenne quotidienne</small><strong>{aggregateAverageWorked === null ? "—" : durationLabel(aggregateAverageWorked)}</strong><p>{aggregateWorkedDays.length} journée{aggregateWorkedDays.length > 1 ? "s" : ""} travaillée{aggregateWorkedDays.length > 1 ? "s" : ""}</p></div></article>
+          <article className={aggregateTotalLate ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>Retards</small><strong>{durationLabel(aggregateTotalLate)}</strong><p>{aggregateAverageLate === null ? "Aucun retard" : `${durationLabel(aggregateAverageLate)} en moyenne · ${aggregateLateDays.length}`}</p></div></article>
+          <article><span><Coffee size={20} /></span><div><small>Pauses prises</small><strong>{aggregateBreaks}</strong><p>{aggregateAveragePause === null ? "Aucune pause mesurée" : `${durationLabel(aggregateAveragePause)} en moyenne`}</p></div></article>
+          <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absences potentielles</small><strong>{aggregateAbsences}</strong><p>Journées planifiées sans pointage</p></div></article>
+          <article><span><CalendarDays size={20} /></span><div><small>Au-delà du prévu</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "Aucun dépassement" : `${durationLabel(aggregateAverageOvertime)} en moyenne`}</p></div></article>
+          <div className="report-average-strip">
+            <span><small>Début moyen</small><strong>{minuteOfDayLabel(aggregateAverageStart)}</strong></span>
+            <span><small>Première pause</small><strong>{minuteOfDayLabel(aggregateAverageFirstBreak)}</strong></span>
+            <span><small>Première reprise</small><strong>{minuteOfDayLabel(aggregateAverageFirstResume)}</strong></span>
+            <span><small>Fin moyenne</small><strong>{minuteOfDayLabel(aggregateAverageEnd)}</strong></span>
+            <p>Calculé sur {collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""} et {aggregateDays.length} journée{aggregateDays.length > 1 ? "s" : ""}.</p>
+          </div>
         </section>
       )}
 
       {view === "live" && <section className="live-team-board">
         <header className="live-team-heading">
           <div><span>Équipe aujourd’hui</span><h2>Qui est là maintenant&nbsp;?</h2><p>Sélectionnez une personne pour voir sa journée en cours.</p></div>
-          <div className="live-team-count"><strong>{filteredRows.length}</strong><span>personne{filteredRows.length > 1 ? "s" : ""}</span></div>
+          <div className="live-team-count"><strong>{filteredDayRows.length}</strong><span>personne{filteredDayRows.length > 1 ? "s" : ""}</span></div>
         </header>
 
         <div className="live-state-tabs" aria-label="Filtrer par état">
@@ -672,7 +823,7 @@ export function OrganisationReports({
           <label><Building2 size={17} /><span className="sr-only">Filtrer par service</span><select value={service} onChange={(event) => { setService(event.target.value); setPage(1); }}><option value="all">Tous les services</option>{services.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
         </div>
 
-        {displayedRows.length === 0 ? <div className="live-team-empty"><UsersRound size={27} /><strong>Aucune personne dans cette vue</strong><p>Modifiez le filtre ou la recherche pour retrouver un collaborateur.</p><button type="button" onClick={() => { setStatus("all"); setService("all"); setQuery(""); }}>Effacer les filtres</button></div> : <div className="live-team-list">{displayedRows.map((row) => {
+        {displayedDayRows.length === 0 ? <div className="live-team-empty"><UsersRound size={27} /><strong>Aucune personne dans cette vue</strong><p>Modifiez le filtre ou la recherche pour retrouver un collaborateur.</p><button type="button" onClick={() => { setStatus("all"); setService("all"); setQuery(""); }}>Effacer les filtres</button></div> : <div className="live-team-list">{displayedDayRows.map((row) => {
           const lastEvent = row.valid.at(-1);
           const LastIcon = lastEvent ? typeIcons[lastEvent.type] : Clock3;
           return <button className={`live-person-row state-${row.status}`} type="button" onClick={() => setSelectedRowKey(row.key)} key={row.key}>
@@ -685,17 +836,19 @@ export function OrganisationReports({
           </button>;
         })}</div>}
 
-        {totalPages > 1 && <footer className="live-team-pagination"><span>{filteredRows.length} personnes</span><div><button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={17} /> Précédent</button><strong>{currentPage} / {totalPages}</strong><button type="button" disabled={currentPage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Suivant <ChevronRight size={17} /></button></div></footer>}
+        {liveTotalPages > 1 && <footer className="live-team-pagination"><span>{filteredDayRows.length} personnes</span><div><button type="button" disabled={liveCurrentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={17} /> Précédent</button><strong>{liveCurrentPage} / {liveTotalPages}</strong><button type="button" disabled={liveCurrentPage === liveTotalPages} onClick={() => setPage((value) => Math.min(liveTotalPages, value + 1))}>Suivant <ChevronRight size={17} /></button></div></footer>}
       </section>}
 
       {view === "reports" && <section className="admin-attendance-card">
         <header className="admin-attendance-heading">
-          <div><span>Présences et temps</span><h2>Activité de l’équipe</h2><p>{filteredRows.length} ligne{filteredRows.length > 1 ? "s" : ""} correspondant aux filtres.</p></div>
+          <div><span>Présences et temps</span><h2>{selectedProfile ? `Rapport de ${selectedProfile.fullname}` : "Activité de l’équipe"}</h2><p>{collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""} dans le périmètre filtré.</p></div>
           <details className="activity-column-picker admin-column-picker">
             <summary><Columns3 size={15} /> Colonnes</summary>
-            <div>{columnOrder.map((column) => <label key={column}><input type="checkbox" checked={visibleColumns.includes(column)} disabled={column === "collaborator"} onChange={() => toggleColumn(column)} /><span>{columnLabels[column]}</span></label>)}</div>
+            <div>{columnOrder.map((column) => <label key={column}><input type="checkbox" checked={visibleColumns.includes(column)} disabled={column === "collaborator"} onChange={() => toggleColumn(column)} /><span>{summaryColumnLabel(column)}</span></label>)}</div>
           </details>
         </header>
+
+        {selectedProfile && <div className="report-profile-focus"><span>{selectedProfile.fullname.slice(0, 2).toUpperCase()}</span><div><small>Rapport individuel</small><strong>{selectedProfile.fullname}</strong></div><button type="button" onClick={() => { setSelectedProfileId(null); setExpandedProfileIds([]); setPage(1); }}><X size={15} /> Revenir à toute l’équipe</button></div>}
 
         <div className="admin-report-filters">
           <label className="admin-search-filter"><Search size={16} /><span className="sr-only">Rechercher</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Nom, identifiant, poste ou service" /></label>
@@ -703,20 +856,30 @@ export function OrganisationReports({
           <label><Filter size={16} /><span className="sr-only">État</span><select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="all">Tous les états</option><option value="working">En service</option><option value="paused">En pause</option><option value="completed">Terminé</option><option value="not-started">Pas commencé</option><option value="late">En retard</option><option value="attention">À vérifier</option></select></label>
         </div>
 
-        {displayedRows.length === 0 ? (
-          <div className="report-empty"><Clock3 size={25} /><p>Aucune journée ne correspond à ces filtres.</p></div>
+        {displayedSummaries.length === 0 ? (
+          <div className="report-empty"><Clock3 size={25} /><p>Aucun collaborateur ne correspond à ces filtres.</p></div>
         ) : (
-          <div className="admin-attendance-table">
+          <div className="admin-attendance-table report-collaborator-table">
             <table>
-              <thead><tr>{visibleColumns.map((column) => <th className={column === "collaborator" ? "sticky-column" : ""} key={column}>{columnLabels[column]}</th>)}</tr></thead>
-              <tbody>{displayedRows.map((row) => <tr role="button" tabIndex={0} aria-label={`Voir la journée de ${row.profile.fullname}`} onClick={() => setSelectedRowKey(row.key)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRowKey(row.key); }} key={row.key}>{visibleColumns.map((column) => <td className={`${column === "collaborator" ? "sticky-column admin-person-cell" : ""} ${column === "status" ? `admin-status-cell ${row.status}` : ""}`} key={column}>{column === "collaborator" ? <><span>{row.profile.fullname.slice(0, 2).toUpperCase()}</span><div><strong>{row.profile.fullname}</strong><small>{row.profile.identifiant}</small></div></> : column === "status" ? <span>{cellValue(row, column)}</span> : cellValue(row, column)}</td>)}</tr>)}</tbody>
+              <thead><tr>{visibleColumns.map((column) => <th className={column === "collaborator" ? "sticky-column" : ""} key={column}>{summaryColumnLabel(column)}</th>)}<th><span className="sr-only">Détails</span></th></tr></thead>
+              <tbody>{displayedSummaries.map((summary) => {
+                const expanded = expandedProfileIds.includes(summary.profile.id);
+                const singleDay = summary.days[0];
+                return [
+                  <tr className={expanded ? "is-expanded" : ""} key={summary.profile.id}>
+                    {visibleColumns.map((column) => <td className={column === "collaborator" ? "sticky-column admin-person-cell" : ""} data-label={summaryColumnLabel(column)} key={column}>{column === "collaborator" ? <><span>{summary.profile.fullname.slice(0, 2).toUpperCase()}</span><div><button className="report-person-focus" type="button" onClick={() => focusCollaborator(summary.profile.id)}>{summary.profile.fullname}</button><small>{summary.profile.identifiant}</small></div></> : summaryCellValue(summary, column)}</td>)}
+                    <td className="report-row-action">{isSingleDay ? <button type="button" disabled={!singleDay} onClick={() => singleDay && setSelectedRowKey(singleDay.key)}><Clock3 size={15} /><span>Pointages</span></button> : <button type="button" aria-expanded={expanded} aria-controls={`report-days-${summary.profile.id}`} onClick={() => toggleCollaborator(summary.profile.id)}><ChevronDown size={17} /><span>{expanded ? "Masquer" : "Journées"}</span></button>}</td>
+                  </tr>,
+                  !isSingleDay && expanded ? <tr className="report-days-row" key={`${summary.profile.id}-days`}><td colSpan={visibleColumns.length + 1}><div className="report-days-accordion" id={`report-days-${summary.profile.id}`}><header><div><small>Détail de la période</small><strong>{summary.profile.fullname}</strong></div><span>{summary.days.length} journée{summary.days.length > 1 ? "s" : ""}</span></header>{summary.days.length ? <div className="report-day-list"><div className="report-day-line heading"><span>Journée</span><span>Début</span><span>1re pause</span><span>1re reprise</span><span>Fin</span><span>Pauses</span><span>Temps de pause</span><span>Retard</span><span>Solde</span><span /></div>{summary.days.map((day) => <button className={day.isPotentialAbsence ? "report-day-line is-absence" : "report-day-line"} type="button" onClick={() => setSelectedRowKey(day.key)} key={day.key}><span data-label="Journée"><strong>{new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day.day}T12:00:00`))}</strong>{day.isPotentialAbsence && <small>Absence potentielle</small>}</span><span data-label="Début">{dayCellValue(day, "start")}</span><span data-label="1re pause">{dayCellValue(day, "firstBreak")}</span><span data-label="1re reprise">{dayCellValue(day, "firstResume")}</span><span data-label="Fin">{dayCellValue(day, "end")}</span><span data-label="Pauses">{dayCellValue(day, "breakCount")}</span><span data-label="Temps de pause">{dayCellValue(day, "pauseDuration")}</span><span data-label="Retard">{dayCellValue(day, "late")}</span><span data-label="Solde">{dayCellValue(day, "balance")}</span><ChevronRight size={16} /></button>)}</div> : <div className="report-days-empty"><CalendarDays size={21} /> Aucune journée disponible sur cette période.</div>}</div></td></tr> : null,
+                ];
+              })}</tbody>
             </table>
           </div>
         )}
 
         <footer className="admin-table-pagination">
-          <span>{filteredRows.length ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filteredRows.length)} sur ${filteredRows.length}` : "0 résultat"}</span>
-          <div><button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /> Précédent</button><strong>{currentPage} / {totalPages}</strong><button type="button" disabled={currentPage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Suivant <ChevronRight size={16} /></button></div>
+          <span>{collaboratorSummaries.length ? `${(reportCurrentPage - 1) * PAGE_SIZE + 1}–${Math.min(reportCurrentPage * PAGE_SIZE, collaboratorSummaries.length)} sur ${collaboratorSummaries.length}` : "0 résultat"}</span>
+          <div><button type="button" disabled={reportCurrentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /> Précédent</button><strong>{reportCurrentPage} / {reportTotalPages}</strong><button type="button" disabled={reportCurrentPage === reportTotalPages} onClick={() => setPage((value) => Math.min(reportTotalPages, value + 1))}>Suivant <ChevronRight size={16} /></button></div>
         </footer>
       </section>}
 

@@ -15,7 +15,7 @@ export default async function ReportsPage() {
 
   return (
     <div className="dashboard-settings-page reports-page">
-      <header className="dashboard-content-header"><div><span>Analyse et export</span><h1>Rapports</h1><p>Analysez les journées sur la période de votre choix, puis exportez les données en PDF, Excel ou CSV.</p></div><div className="settings-page-avatar"><BarChart3 size={23} /></div></header>
+      <header className="dashboard-content-header"><div><span>Analyse et export</span><h1>Rapports</h1><p>Choisissez une période, lisez les résultats et exportez si nécessaire.</p></div><div className="settings-page-avatar"><BarChart3 size={23} /></div></header>
       <OrganisationReports organisationId={access.organisation.id} organisationName={access.organisation.name} timeZone={access.organisation.timezone} />
     </div>
   );

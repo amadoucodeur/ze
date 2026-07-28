@@ -4,7 +4,6 @@ import {
   Building2,
   Check,
   CircleCheck,
-  CloudOff,
   CreditCard,
   Laptop,
   MapPin,
@@ -16,7 +15,6 @@ import {
   Tablet,
   TimerReset,
   UsersRound,
-  WifiOff,
 } from "lucide-react";
 import Link from "next/link";
 import { ZeControlLogo, ZeSuiteLogo } from "@ze/ui-foundations/brands";
@@ -41,7 +39,6 @@ export default function Home() {
         <nav aria-label="Navigation principale">
           <a href="#solution">La solution</a>
           <a href="#tarifs">Tarifs</a>
-          <a href="#hors-connexion">Hors connexion</a>
           <a href="#ecrans">Tous les écrans</a>
         </nav>
         <div className="control-header-actions">
@@ -62,7 +59,7 @@ export default function Home() {
           </h1>
           <p className="hero-summary">
             ZeControl simplifie le suivi des présences, des retards et du temps
-            de travail. Au bureau, sur le terrain ou avec un réseau instable.
+            de travail. Au bureau, sur le terrain ou à distance.
           </p>
           <div className="hero-actions">
             <Link className="button button-primary" href="/connexion">
@@ -126,10 +123,10 @@ export default function Home() {
               <span><Check size={24} /></span>
               Pointé à 08:01
             </button>
-            <small><WifiOff size={12} /> Prêt même si le réseau coupe</small>
+            <small><ShieldCheck size={12} /> Heure et localisation contrôlées</small>
           </div>
 
-          <div className="sync-card"><CloudOff size={19} /><span><strong>3 événements</strong><small>prêts à synchroniser</small></span></div>
+          <div className="sync-card"><ShieldCheck size={19} /><span><strong>Pointage vérifié</strong><small>contexte enregistré</small></span></div>
         </div>
       </section>
 
@@ -248,42 +245,6 @@ export default function Home() {
               <strong>Simple à retenir :</strong> aucun pointage = 0 F.
               Un ou plusieurs pointages dans le mois = {unitPrice} F.
             </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="offline-section" id="hors-connexion">
-        <div className="shell offline-layout">
-          <div className="offline-copy">
-            <p className="section-kicker light-kicker">Réseau instable, preuves conservées</p>
-            <h2>Hors connexion ne veut pas dire sans contrôle.</h2>
-            <p>
-              Quand internet disparaît, ZeControl enregistre l’événement sur
-              l’appareil avec ses éléments de contexte. À la reconnexion, le
-              serveur le reçoit, vérifie sa cohérence et indique son niveau de confiance.
-            </p>
-            <div className="confidence-levels">
-              <span><i className="confidence-high" /> Fiable</span>
-              <span><i className="confidence-review" /> À vérifier</span>
-              <span><i className="confidence-declared" /> Déclaré</span>
-            </div>
-          </div>
-          <div className="offline-timeline">
-            <article>
-              <span className="timeline-icon"><Smartphone size={20} /></span>
-              <div><small>Étape 1</small><h3>Enregistrement local</h3><p>Heure de l’appareil, localisation disponible et identifiant sécurisé.</p></div>
-              <BadgeCheck size={19} />
-            </article>
-            <article>
-              <span className="timeline-icon"><CloudOff size={20} /></span>
-              <div><small>Étape 2</small><h3>Preuves préservées</h3><p>L’événement ne peut pas être discrètement réécrit avant l’envoi.</p></div>
-              <BadgeCheck size={19} />
-            </article>
-            <article>
-              <span className="timeline-icon"><ShieldCheck size={20} /></span>
-              <div><small>Étape 3</small><h3>Synchronisation contrôlée</h3><p>Le serveur compare les données et signale les incohérences au manager.</p></div>
-              <BadgeCheck size={19} />
-            </article>
           </div>
         </div>
       </section>

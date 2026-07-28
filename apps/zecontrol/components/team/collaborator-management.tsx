@@ -11,11 +11,7 @@ import {
 import { PasswordInput } from "@/components/auth/password-input";
 import { CollaboratorStatusForm } from "./collaborator-status-form";
 import { normalizeIdentifierPart } from "@/lib/identifiers";
-import {
-  offlinePolicyCopy,
-  offlinePolicyOptions,
-  type OfflinePolicy,
-} from "@/lib/offline-policy";
+import type { OfflinePolicy } from "@/lib/offline-policy";
 
 type Collaborator = {
   id: string;
@@ -40,7 +36,6 @@ export function CollaboratorManagement({ collaborator, organisationIdentifier }:
   const [passwordState, passwordAction, passwordPending] = useActionState(resetCollaboratorPasswordAction.bind(null, collaborator.id), passwordInitial);
   const [identifier, setIdentifier] = useState(collaborator.identifiant.split("@")[0] ?? "");
   const [passwordMode, setPasswordMode] = useState<"generated" | "custom">("generated");
-  const [policy, setPolicy] = useState<Collaborator["policy"]>(collaborator.policy);
   const [copied, setCopied] = useState(false);
 
   async function copyCredentials() {
@@ -63,8 +58,7 @@ export function CollaboratorManagement({ collaborator, organisationIdentifier }:
             <label className="team-field"><span>Poste</span><div><input name="poste" defaultValue={collaborator.poste ?? ""} /></div></label>
             <label className="team-field"><span>Service</span><div><input name="service" defaultValue={collaborator.service ?? ""} /></div></label>
             <label className="team-field"><span>Rôle ZeControl</span><div><select name="role" defaultValue={collaborator.role}><option value="agent">Agent</option><option value="admin">Administrateur</option></select></div></label>
-            <label className="team-field"><span>En cas de coupure internet</span><div><select name="policy" value={policy} onChange={(event) => setPolicy(event.target.value as OfflinePolicy)}>{offlinePolicyOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></div></label>
-            <div className={`team-policy-explanation policy-${policy}`}><strong>{offlinePolicyCopy[policy].title}</strong><small>{offlinePolicyCopy[policy].description} Le mode hors connexion sera activé ultérieurement.</small></div>
+            <input type="hidden" name="policy" value={collaborator.policy} />
             <label className="team-check"><input type="checkbox" name="canRemote" defaultChecked={collaborator.can_remote} /><span><strong>Pointage à distance autorisé</strong><small>Permet de pointer en dehors du site. La position reste enregistrée.</small></span></label>
           </div>
           {updateState.message && <div className="form-message form-error">{updateState.message}</div>}

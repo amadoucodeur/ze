@@ -21,11 +21,6 @@ import {
 } from "@/app/actions/team";
 import { PasswordInput } from "@/components/auth/password-input";
 import { normalizeIdentifierPart } from "@/lib/identifiers";
-import {
-  offlinePolicyCopy,
-  offlinePolicyOptions,
-  type OfflinePolicy,
-} from "@/lib/offline-policy";
 
 const initialState: CollaboratorState = {};
 
@@ -45,7 +40,6 @@ export function CollaboratorForm({
   const [passwordMode, setPasswordMode] = useState<"generated" | "custom">(
     "generated",
   );
-  const [policy, setPolicy] = useState<OfflinePolicy>("strict");
   const [copied, setCopied] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const formRef = useRef<HTMLFormElement>(null);
@@ -96,7 +90,7 @@ export function CollaboratorForm({
   return (
     <form action={action} className="team-form" ref={formRef}>
       <nav className="team-form-progress" aria-label="Progression de la création">
-        {["Identité", "Règles", "Sécurité"].map((label, index) => <button className={step === index + 1 ? "current" : step > index + 1 ? "complete" : ""} type="button" onClick={() => { if (index + 1 < step) setStep((index + 1) as 1 | 2 | 3); }} key={label}><span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>{label}</button>)}
+        {["Identité", "Accès", "Sécurité"].map((label, index) => <button className={step === index + 1 ? "current" : step > index + 1 ? "complete" : ""} type="button" onClick={() => { if (index + 1 < step) setStep((index + 1) as 1 | 2 | 3); }} key={label}><span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>{label}</button>)}
       </nav>
       <section className="team-panel" data-team-step="1" hidden={step !== 1}>
         <div className="team-panel-heading"><UserPlus size={20} /><div><h2>Identité du collaborateur</h2><p>Comme dans ZeRecruit, le compte appartient à l’organisation et utilise un identifiant dédié.</p></div></div>
@@ -114,8 +108,7 @@ export function CollaboratorForm({
         <div className="team-panel-heading"><UserRound size={20} /><div><h2>Configuration ZeControl</h2><p>Ces droits restent propres à ZeControl.</p></div></div>
         <div className="team-form-grid">
           <label className="team-field"><span>Rôle</span><div><select name="role" defaultValue="agent"><option value="agent">Agent</option><option value="admin">Administrateur</option></select></div></label>
-          <label className="team-field"><span>En cas de coupure internet</span><div><select name="policy" value={policy} onChange={(event) => setPolicy(event.target.value as OfflinePolicy)}>{offlinePolicyOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></div></label>
-          <div className={`team-policy-explanation policy-${policy}`}><strong>{offlinePolicyCopy[policy].title}</strong><small>{offlinePolicyCopy[policy].description} Le mode hors connexion sera activé ultérieurement.</small></div>
+          <input type="hidden" name="policy" value="strict" />
           <label className="team-check"><input type="checkbox" name="canRemote" /><span><strong>Autoriser le pointage à distance</strong><small>Permet de pointer en dehors du site. La position reste enregistrée.</small></span></label>
         </div>
       </section>
@@ -131,7 +124,7 @@ export function CollaboratorForm({
 
       {state.message && <div className="form-message form-error" role="alert">{state.message}</div>}
       <div className="team-form-footer team-form-wizard-footer">
-        <p>{step === 1 ? "Commencez par les informations essentielles." : step === 2 ? "Définissez simplement les règles de pointage." : "Le collaborateur changera son mot de passe à la première connexion."}</p>
+        <p>{step === 1 ? "Commencez par les informations essentielles." : step === 2 ? "Choisissez uniquement les droits nécessaires." : "Le collaborateur changera son mot de passe à la première connexion."}</p>
         <div>{step > 1 && <button className="button button-ghost" type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3)}><ArrowLeft size={16} /> Retour</button>}{step < 3 ? <button className="button button-primary" type="button" onClick={goToNextStep}>Continuer <ArrowRight size={16} /></button> : <button className="button button-primary" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" size={17} /> Création...</> : <><UserPlus size={17} /> Créer le collaborateur</>}</button>}</div>
       </div>
     </form>

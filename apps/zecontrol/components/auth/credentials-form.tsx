@@ -40,7 +40,7 @@ export function UnifiedAuthForm() {
         <h2>{path ? (path === "owner" ? "Accéder à mon organisation" : "Accéder à mon espace") : "Comment vous connectez-vous ?"}</h2>
         <p>{path
           ? (path === "owner"
-            ? "Utilisez le compte Google associé à votre espace ZeSuite."
+            ? "Continuez avec Google. Votre espace sera retrouvé ou créé en quelques étapes."
             : "Utilisez l’identifiant transmis par votre organisation.")
           : "Choisissez simplement votre type d’accès. Nous afficherons uniquement les informations utiles."}</p>
       </div>
@@ -73,7 +73,7 @@ export function UnifiedAuthForm() {
           <div>
             <small>Accès propriétaire</small>
             <h3 id="owner-login-title">Continuer avec Google</h3>
-            <p>Si votre organisation existe déjà dans ZeSuite, elle sera reconnue automatiquement.</p>
+            <p>Votre organisation existante sera reconnue. Sinon, vous pourrez la créer.</p>
           </div>
         </div>
         <form action={googleSignupAction}><GoogleButton /></form>

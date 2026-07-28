@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, CheckCircle2, Clock3, UserPlus, UsersRound } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, UserPlus, UsersRound } from "lucide-react";
 import { activateExistingCollaboratorAction } from "@/app/actions/team";
 import { TeamDirectory } from "@/components/team/team-directory";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
@@ -47,12 +47,12 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="dashboard-settings-page team-page">
-      <header className="dashboard-content-header team-page-header"><div><span>Administration</span><h1>Votre équipe</h1><p>Gérez les accès ZeControl de {access.organisation.name}, sans modifier leurs accès aux autres produits.</p></div><Link className="button button-primary team-add-button" href="/dashboard/equipe/nouveau"><UserPlus size={17} /> Ajouter un collaborateur</Link></header>
+      <header className="dashboard-content-header team-page-header"><div><span>Administration</span><h1>Équipe</h1><p>Gérez les personnes qui utilisent ZeControl dans {access.organisation.name}.</p></div><Link className="button button-primary team-add-button" href="/dashboard/equipe/nouveau"><UserPlus size={17} /> Ajouter</Link></header>
       {query.error && <div className="form-message form-error">L’activation n’a pas abouti. Réessayez.</div>}
 
-      <div className="team-stats-grid"><article><span><UsersRound size={19} /></span><div><small>Collaborateurs</small><strong>{collaborators.length}</strong></div></article><article><span><CheckCircle2 size={19} /></span><div><small>Accès actifs</small><strong>{activeCount}</strong></div></article><article><span><Clock3 size={19} /></span><div><small>Disponibles dans ZeSuite</small><strong>{availableProfiles.length}</strong></div></article></div>
+      <div className="team-stats-grid team-stats-simple"><article><span><UsersRound size={19} /></span><div><small>Collaborateurs</small><strong>{collaborators.length}</strong></div></article><article><span><CheckCircle2 size={19} /></span><div><small>Accès actifs</small><strong>{activeCount}</strong></div></article></div>
 
-      {availableProfiles.length > 0 && <section className="team-available-card"><div className="team-table-heading"><div><h2>Déjà présents dans ZeSuite</h2><p>Activez ZeControl sans recréer leur compte, leur identifiant ou leur mot de passe.</p></div><span className="team-available-count">{availableProfiles.length}</span></div><div className="team-available-list">{availableProfiles.map((profile) => <article key={profile.id}><span className="team-avatar">{profile.fullname.slice(0, 2).toUpperCase()}</span><div><strong>{profile.fullname}</strong><small>{profile.identifiant}</small></div><form action={activateExistingCollaboratorAction.bind(null, profile.id)}><button className="button button-ghost" type="submit">Activer ZeControl <ArrowRight size={15} /></button></form></article>)}</div></section>}
+      {availableProfiles.length > 0 && <details className="team-available-card"><summary className="team-table-heading"><div><h2>Déjà dans ZeSuite</h2><p>Activez simplement leur accès ZeControl.</p></div><span className="team-available-count">{availableProfiles.length}</span><ChevronDown size={18} /></summary><div className="team-available-list">{availableProfiles.map((profile) => <article key={profile.id}><span className="team-avatar">{profile.fullname.slice(0, 2).toUpperCase()}</span><div><strong>{profile.fullname}</strong><small>{profile.identifiant}</small></div><form action={activateExistingCollaboratorAction.bind(null, profile.id)}><button className="button button-ghost" type="submit">Activer <ArrowRight size={15} /></button></form></article>)}</div></details>}
 
       {collaborators.length === 0 ? <section className="team-empty-state"><span><UserPlus size={27} /></span><h2>Ajoutez votre premier collaborateur.</h2><p>Créez un nouvel accès ou activez un profil ZeSuite déjà présent dans l’organisation.</p><Link className="button button-primary" href="/dashboard/equipe/nouveau">Créer un accès <ArrowRight size={17} /></Link></section> : <TeamDirectory items={collaborators.map(({ config, profile }) => ({ id: profile.id, fullname: profile.fullname, identifiant: profile.identifiant, role: config.role as "owner" | "admin" | "agent", isActive: config.is_active, lastLoginLabel: formatDate(profile.last_login_at), poste: config.poste, service: config.service }))} />}
     </div>

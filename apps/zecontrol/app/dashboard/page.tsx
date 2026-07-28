@@ -40,7 +40,7 @@ export default async function DashboardPage({
         <div>
           <span>{access.organisation.name}</span>
           <h1>Présences en direct</h1>
-          <p>Visualisez la situation actuelle de toute l’équipe, sans quitter l’accueil.</p>
+          <p>Voyez immédiatement qui travaille, qui est en pause et qui mérite votre attention.</p>
         </div>
         <div className="settings-page-avatar live-home-avatar"><Radio size={23} /></div>
       </header>

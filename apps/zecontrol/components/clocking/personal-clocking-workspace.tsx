@@ -395,7 +395,7 @@ export function PersonalClockingWorkspace({
           {selectedDay === today && (isWorking || isPaused) && <div className={`agent-live-strip ${isPaused ? "paused" : "working"}`}><span><i /> {isPaused ? "Pause en cours" : "Temps en cours"}</span><strong>{durationLabel(todayMinutes)}</strong></div>}
         </section>
         <EventRequestPanel key={requestIntent?.key ?? "agent-request-dialog"} profileId={profileId} events={editableEvents} initialIntent={requestIntent} onClose={() => setRequestIntent(null)} showLauncher={false} />
-        {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Mon activité</strong><small>Journées précédentes, KPI et exports</small></span><ArrowRight size={16} /></Link>}
+        {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Voir mon activité</strong><small>Historique, repères et exports</small></span><ArrowRight size={16} /></Link>}
       </section>}
 
       {showClocking && mode === "manager" && <section className="clocking-hero">

@@ -17,7 +17,14 @@ export default async function MyActivityPage() {
   return (
     <div className="agent-activity-page">
       <Link className="dashboard-back-link" href="/dashboard"><ArrowLeft size={15} /> Retour au pointage</Link>
-      <PersonalActivityDashboard profileId={access.profile.id} fullname={access.profile.fullname} timeZone={access.organisation.timezone} />
+      <PersonalActivityDashboard
+        profileId={access.profile.id}
+        organisationId={access.organisation.id}
+        fullname={access.profile.fullname}
+        service={access.productProfile.service}
+        activatedAt={access.productProfile.created_at}
+        timeZone={access.organisation.timezone}
+      />
     </div>
   );
 }

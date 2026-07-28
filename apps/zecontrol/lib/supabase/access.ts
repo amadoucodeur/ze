@@ -35,6 +35,7 @@ export type ZeControlContext = {
   } | null;
   productProfile: {
     id: string;
+    created_at: string;
     role: ZeControlRole;
     is_active: boolean;
     policy: "strict" | "flexible" | "free";
@@ -109,7 +110,7 @@ export async function getZeControlAccess(
       admin
         .schema("zecontrol")
         .from("profiles_configs")
-        .select("id, role, is_active, policy, can_remote, poste, service")
+        .select("id, created_at, role, is_active, policy, can_remote, poste, service")
         .eq("id", typedProfile.id)
         .maybeSingle(),
     ]);
