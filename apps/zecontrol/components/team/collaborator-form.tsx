@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -42,7 +48,19 @@ export function CollaboratorForm({
   );
   const [copied, setCopied] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [finalStepReady, setFinalStepReady] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const finalSubmitRef = useRef<HTMLButtonElement>(null);
+  const finalSubmitRequestedRef = useRef(false);
+
+  useEffect(() => {
+    if (step !== 3) return;
+
+    // Let the pointer/click sequence that opened the final step finish before
+    // the submit button can become active.
+    const timer = window.setTimeout(() => setFinalStepReady(true), 450);
+    return () => window.clearTimeout(timer);
+  }, [step]);
 
   function goToNextStep() {
     const currentSection = formRef.current?.querySelector<HTMLElement>(`[data-team-step="${step}"]`);
@@ -53,7 +71,23 @@ export function CollaboratorForm({
       invalid.focus();
       return;
     }
+    if (step === 2) setFinalStepReady(false);
     setStep((current) => Math.min(3, current + 1) as 1 | 2 | 3);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const explicitlyRequested =
+      step === 3 &&
+      finalStepReady &&
+      submitter === finalSubmitRef.current &&
+      finalSubmitRequestedRef.current;
+
+    finalSubmitRequestedRef.current = false;
+    if (explicitlyRequested) return;
+
+    event.preventDefault();
+    if (step < 3) goToNextStep();
   }
 
   async function copyCredentials() {
@@ -88,9 +122,9 @@ export function CollaboratorForm({
   }
 
   return (
-    <form action={action} className="team-form" ref={formRef}>
+    <form action={action} className="team-form" ref={formRef} onSubmit={handleSubmit}>
       <nav className="team-form-progress" aria-label="Progression de la création">
-        {["Identité", "Accès", "Sécurité"].map((label, index) => <button className={step === index + 1 ? "current" : step > index + 1 ? "complete" : ""} type="button" onClick={() => { if (index + 1 < step) setStep((index + 1) as 1 | 2 | 3); }} key={label}><span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>{label}</button>)}
+        {["Identité", "Accès", "Sécurité"].map((label, index) => <button className={step === index + 1 ? "current" : step > index + 1 ? "complete" : ""} type="button" onClick={() => { if (index + 1 < step) { setFinalStepReady(false); setStep((index + 1) as 1 | 2 | 3); } }} key={label}><span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>{label}</button>)}
       </nav>
       <section className="team-panel" data-team-step="1" hidden={step !== 1}>
         <div className="team-panel-heading"><UserPlus size={20} /><div><h2>Identité du collaborateur</h2><p>Comme dans ZeRecruit, le compte appartient à l’organisation et utilise un identifiant dédié.</p></div></div>
@@ -125,7 +159,7 @@ export function CollaboratorForm({
       {state.message && <div className="form-message form-error" role="alert">{state.message}</div>}
       <div className="team-form-footer team-form-wizard-footer">
         <p>{step === 1 ? "Commencez par les informations essentielles." : step === 2 ? "Choisissez uniquement les droits nécessaires." : "Le collaborateur changera son mot de passe à la première connexion."}</p>
-        <div>{step > 1 && <button className="button button-ghost" type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3)}><ArrowLeft size={16} /> Retour</button>}{step < 3 ? <button className="button button-primary" type="button" onClick={goToNextStep}>Continuer <ArrowRight size={16} /></button> : <button className="button button-primary" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" size={17} /> Création...</> : <><UserPlus size={17} /> Créer le collaborateur</>}</button>}</div>
+        <div>{step > 1 && <button className="button button-ghost" type="button" onClick={() => { setFinalStepReady(false); setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3); }}><ArrowLeft size={16} /> Retour</button>}{step < 3 ? <button className="button button-primary" type="button" onClick={goToNextStep}>Continuer <ArrowRight size={16} /></button> : <button className="button button-primary" type="submit" name="submissionIntent" value="create" ref={finalSubmitRef} disabled={pending || !finalStepReady} onClick={() => { finalSubmitRequestedRef.current = true; }}>{pending ? <><LoaderCircle className="spin" size={17} /> Création...</> : <><UserPlus size={17} /> Créer le collaborateur</>}</button>}</div>
       </div>
     </form>
   );

@@ -178,6 +178,10 @@ export async function createCollaboratorAction(
   _state: CollaboratorState,
   formData: FormData,
 ): Promise<CollaboratorState> {
+  if (formData.get("submissionIntent") !== "create") {
+    return {};
+  }
+
   const manager = await managerContext();
   const parsed = collaboratorSchema.safeParse({
     fullname: formData.get("fullname"),
