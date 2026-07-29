@@ -262,13 +262,21 @@ export function OrganisationSettingsWorkspace({
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (position.coords.accuracy > 150) {
+          setLocating(false);
+          setLocationFeedback({
+            type: "error",
+            message: "La position obtenue est trop imprécise pour définir un site fiable. Activez la localisation précise ou recommencez depuis un téléphone.",
+          });
+          return;
+        }
         setLocation((current) => ({
           ...current,
           lat: position.coords.latitude.toFixed(7),
           long: position.coords.longitude.toFixed(7),
         }));
         setLocating(false);
-        setLocationFeedback({ type: "success", message: "Position récupérée. Vérifiez le rayon puis enregistrez." });
+        setLocationFeedback({ type: "success", message: "Position précise récupérée. Vérifiez le rayon puis enregistrez." });
       },
       () => {
         setLocating(false);

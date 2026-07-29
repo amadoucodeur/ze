@@ -40,6 +40,12 @@ type ClockingEvent = {
   long: number;
 };
 
+type ClockingZone = {
+  lat: number;
+  long: number;
+  radius: number;
+};
+
 const typeLabels: Record<EventType, string> = {
   start: "Arrivée",
   break: "Début de pause",
@@ -90,6 +96,10 @@ function actionCopy(type: EventType) {
   }[type];
 }
 
+function requiredLocationAccuracy(radius: number) {
+  return Math.max(50, Math.min(radius, 150));
+}
+
 export function PersonalClockingWorkspace({
   profileId,
   organisationId,
@@ -120,6 +130,7 @@ export function PersonalClockingWorkspace({
   const [submitting, setSubmitting] = useState<EventType | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
+  const [clockingZone, setClockingZone] = useState<ClockingZone | null>(null);
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
   const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
@@ -159,9 +170,20 @@ export function PersonalClockingWorkspace({
         setFeedback({ type: "error", message: "Votre espace de pointage n’est pas encore disponible." });
       } else {
         setEvents((eventsResult.data ?? []) as ClockingEvent[]);
+        const configuredZone =
+          configResult.data.lat != null &&
+          configResult.data.long != null &&
+          configResult.data.radius != null
+            ? {
+                lat: Number(configResult.data.lat),
+                long: Number(configResult.data.long),
+                radius: Number(configResult.data.radius),
+              }
+            : null;
+        setClockingZone(configuredZone);
         setLocationReady(
           canRemote ||
-          (configResult.data.lat != null && configResult.data.long != null && configResult.data.radius != null),
+          configuredZone !== null,
         );
         const resolved = workPolicyResult.data as { definition?: unknown } | null;
         setWorkPolicyDefinition(
@@ -237,10 +259,57 @@ export function PersonalClockingWorkspace({
   async function locate() {
     if (!navigator.onLine) throw new Error("offline");
     if (!navigator.geolocation) throw new Error("geolocation");
+
+    const accuracyTarget =
+      !canRemote && clockingZone
+        ? requiredLocationAccuracy(clockingZone.radius)
+        : Number.POSITIVE_INFINITY;
+
     return new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
+      let bestPosition: GeolocationPosition | null = null;
+      let watchId: number | null = null;
+      let finished = false;
+
+      const finish = (
+        result:
+          | { position: GeolocationPosition }
+          | { error: Error },
+      ) => {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timeoutId);
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        if ("position" in result) resolve(result.position);
+        else reject(result.error);
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        if (bestPosition && bestPosition.coords.accuracy <= accuracyTarget) {
+          finish({ position: bestPosition });
+          return;
+        }
+        finish({
+          error: new Error(bestPosition ? "location_inaccurate" : "location_timeout"),
+        });
+      }, 18_000);
+
+      watchId = navigator.geolocation.watchPosition((position) => {
+        if (
+          !bestPosition ||
+          position.coords.accuracy < bestPosition.coords.accuracy
+        ) {
+          bestPosition = position;
+        }
+        if (position.coords.accuracy <= accuracyTarget) {
+          finish({ position });
+        }
+      }, (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          finish({ error: new Error("location_permission_denied") });
+        }
+      }, {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 18_000,
         maximumAge: 0,
       });
     });
@@ -283,6 +352,7 @@ export function PersonalClockingWorkspace({
           ? String(error.message)
           : "";
       const databaseNotReady = /reviewed_by|pointed_at|profile_id|organisation_id|row-level security|policy/i.test(message);
+      const mobileDevice = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
       setFeedback({
         type: "error",
         message: /billing_access_suspended/i.test(message)
@@ -291,6 +361,17 @@ export function PersonalClockingWorkspace({
           ? "Le service de pointage est momentanément indisponible. Contactez votre administrateur."
           : message === "offline"
           ? "Une connexion internet est requise pour pointer."
+          : message === "location_permission_denied"
+          ? "Autorisez ZeControl à utiliser votre position, puis réessayez."
+          : message === "location_inaccurate"
+            || /clocking_location_accuracy_(required|too_low)/i.test(message)
+          ? mobileDevice
+            ? "Votre position est trop imprécise. Activez la localisation précise, puis réessayez."
+            : "Cet ordinateur ne fournit pas une position assez précise. Activez la localisation précise ou pointez depuis votre téléphone."
+          : message === "location_timeout" || message === "geolocation"
+          ? "Votre position n’a pas pu être obtenue. Vérifiez la localisation de l’appareil, puis réessayez."
+          : /clocking_location_required/i.test(message)
+          ? "La position de l’appareil est nécessaire pour pointer."
           : message.toLowerCase().includes("sequence")
             ? "Cette action ne correspond pas à l’état actuel de votre journée. Actualisez puis réessayez."
             : "Le pointage n’a pas abouti. Vérifiez la localisation et réessayez.",
