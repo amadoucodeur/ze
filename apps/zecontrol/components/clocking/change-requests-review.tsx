@@ -21,10 +21,12 @@ type ChangeRequest = {
   id: string;
   created_at: string;
   profile_id: string;
+  requested_by: string;
   event_id: string | null;
-  request_kind: "correction" | "missing_event";
+  request_kind: "correction" | "missing_event" | "missing_break";
   requested_type: EventType;
   requested_pointed_at: string;
+  requested_end_at: string | null;
   reason: string | null;
   original_type: EventType | null;
   original_pointed_at: string | null;
@@ -59,7 +61,7 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
       const { data, error } = await supabase
         .schema("zecontrol")
         .from("event_change_requests")
-        .select("id, created_at, profile_id, event_id, request_kind, requested_type, requested_pointed_at, reason, original_type, original_pointed_at, status, decision_reason")
+        .select("id, created_at, profile_id, requested_by, event_id, request_kind, requested_type, requested_pointed_at, requested_end_at, reason, original_type, original_pointed_at, status, decision_reason")
         .eq("organisation_id", organisationId)
         .order("created_at", { ascending: false })
         .limit(150);
@@ -67,7 +69,7 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
       if (!error) {
         const typedRequests = (data ?? []) as ChangeRequest[];
         setRequests(typedRequests);
-        const profileIds = [...new Set(typedRequests.map((request) => request.profile_id))];
+        const profileIds = [...new Set(typedRequests.flatMap((request) => [request.profile_id, request.requested_by]))];
         if (profileIds.length) {
           const { data: profileData } = await supabase.from("profiles").select("id, fullname, identifiant").in("id", profileIds);
           if (active) setProfiles((profileData ?? []) as Profile[]);
@@ -130,11 +132,11 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
         const profile = profileMap.get(request.profile_id);
         return <article className={`change-request-card status-${request.status}`} key={request.id}>
           <header><div className="change-request-person"><span><UserRound size={18} /></span><div><strong>{profile?.fullname ?? "Collaborateur"}</strong><small>{profile?.identifiant ?? "Compte de l’organisation"}</small></div></div><span className={`change-request-status ${request.status}`}>{statusLabels[request.status]}</span></header>
-          <div className="change-request-kind"><span>{request.request_kind === "correction" ? <PenLine size={17} /> : <Plus size={17} />}</span><div><small>{request.request_kind === "correction" ? "Correction demandée" : "Pointage oublié"}</small><strong>{request.reason || "Aucun motif fourni"}</strong></div></div>
+          <div className="change-request-kind"><span>{request.request_kind === "correction" ? <PenLine size={17} /> : <Plus size={17} />}</span><div><small>{request.requested_by !== request.profile_id ? `Ajouté par ${profileMap.get(request.requested_by)?.fullname ?? "un administrateur"}` : request.request_kind === "correction" ? "Correction demandée" : request.request_kind === "missing_break" ? "Pause oubliée" : "Pointage oublié"}</small><strong>{request.reason || "Aucun motif fourni"}</strong></div></div>
           <div className="change-request-diff">
             {request.request_kind === "correction" && request.original_type && request.original_pointed_at && <div className="change-value old"><small>Actuellement</small><strong>{eventLabels[request.original_type]}</strong><time>{requestDate(request.original_pointed_at)}</time></div>}
             {request.request_kind === "correction" && <ArrowRight size={19} />}
-            <div className="change-value new"><small>{request.request_kind === "correction" ? "Demandé" : "À ajouter"}</small><strong>{eventLabels[request.requested_type]}</strong><time>{requestDate(request.requested_pointed_at)}</time></div>
+            <div className="change-value new"><small>{request.request_kind === "correction" ? "Demandé" : "À ajouter"}</small><strong>{request.request_kind === "missing_break" ? "Pause complète" : eventLabels[request.requested_type]}</strong><time>{requestDate(request.requested_pointed_at)}{request.request_kind === "missing_break" && request.requested_end_at ? ` → ${requestDate(request.requested_end_at)}` : ""}</time></div>
           </div>
           <footer><time>Envoyée {new Intl.RelativeTimeFormat("fr-FR", { numeric: "auto" }).format(-Math.max(0, Math.round((loadedAt - new Date(request.created_at).getTime()) / 86_400_000)), "day")}</time>{request.status === "pending" && <div><button className="reject" type="button" onClick={() => startReview(request, "rejected")}><X size={16} /> Refuser</button><button className="approve" type="button" onClick={() => startReview(request, "approved")}><Check size={16} /> Approuver</button></div>}</footer>
         </article>;

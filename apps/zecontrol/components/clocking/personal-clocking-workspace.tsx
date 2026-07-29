@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -21,7 +21,9 @@ import {
   ShieldCheck,
   TimerReset,
   Undo2,
+  UserRound,
 } from "lucide-react";
+import { ZeControlLogo } from "@ze/ui-foundations/brands";
 import { createClient } from "@/lib/supabase/client";
 import { dateKey } from "@/lib/reports/period";
 import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
@@ -45,6 +47,8 @@ type ClockingZone = {
   long: number;
   radius: number;
 };
+
+const POINTING_CLICK_COOLDOWN_MS = 5_000;
 
 const typeLabels: Record<EventType, string> = {
   start: "Arrivée",
@@ -82,7 +86,8 @@ function durationLabel(minutes: number) {
 }
 
 function nextEvent(lastEvent: ClockingEvent | undefined): EventType {
-  if (!lastEvent || lastEvent.type === "end") return "start";
+  if (!lastEvent) return "start";
+  if (lastEvent.type === "end") return "end";
   if (lastEvent.type === "break") return "resume";
   return "break";
 }
@@ -105,6 +110,7 @@ export function PersonalClockingWorkspace({
   organisationId,
   organisationName,
   fullname,
+  identifier,
   canRemote,
   timeZone,
   mode = "agent",
@@ -116,6 +122,7 @@ export function PersonalClockingWorkspace({
   organisationId: string;
   organisationName: string;
   fullname: string;
+  identifier: string;
   canRemote: boolean;
   timeZone: string;
   mode?: "agent" | "manager";
@@ -128,17 +135,26 @@ export function PersonalClockingWorkspace({
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<EventType | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
   const [cancelling, setCancelling] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
   const [clockingZone, setClockingZone] = useState<ClockingZone | null>(null);
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
   const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
+  const actionGuardRef = useRef(false);
+  const cooldownTimerRef = useRef<number | null>(null);
   const currentDayKey = dateKey(now, timeZone);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) window.clearTimeout(cooldownTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -206,15 +222,19 @@ export function PersonalClockingWorkspace({
     .sort((a, b) => new Date(a.pointed_at).getTime() - new Date(b.pointed_at).getTime());
   const lastTodayEvent = todayValidEvents.at(-1);
   const currentAction = nextEvent(lastTodayEvent);
-  const currentCopy = actionCopy(currentAction);
-  const CurrentIcon = currentCopy.Icon;
   const isWorking = lastTodayEvent?.type === "start" || lastTodayEvent?.type === "resume";
   const isPaused = lastTodayEvent?.type === "break";
   const isCompletedToday = lastTodayEvent?.type === "end";
+  const currentCopy = isCompletedToday
+    ? { label: "Journée terminée", hint: "Votre départ est enregistré", Icon: Check }
+    : actionCopy(currentAction);
+  const CurrentIcon = currentCopy.Icon;
   const cancellationSeconds = lastTodayEvent
     ? Math.max(0, 30 - Math.floor((now.getTime() - new Date(lastTodayEvent.pointed_at).getTime()) / 1000))
     : 0;
   const canCancelLastEvent = Boolean(lastTodayEvent && cancellationSeconds > 0);
+  const cooldownSeconds = Math.max(0, Math.ceil((cooldownUntil - now.getTime()) / 1000));
+  const isPointingLocked = Boolean(submitting) || cooldownSeconds > 0;
   const todayMinutes = minutesForEvents(todayEvents, now, timeZone);
   const workPolicyMessage = workPolicyDefinition
     ? currentWorkPolicyMessage({
@@ -316,9 +336,11 @@ export function PersonalClockingWorkspace({
   }
 
   async function createEvent(type: EventType) {
-    if (submitting || !locationReady) return;
+    if (actionGuardRef.current || submitting || !locationReady) return;
+    actionGuardRef.current = true;
     setSubmitting(type);
     setFeedback(null);
+    let eventCreated = false;
     try {
       const position = await locate();
       const { data, error } = await supabase
@@ -339,7 +361,16 @@ export function PersonalClockingWorkspace({
         .single();
       if (error || !data) throw error ?? new Error("insert_failed");
       const created = data as ClockingEvent;
+      eventCreated = true;
       setEvents((current) => [created, ...current]);
+      const nextCooldownUntil = new Date().getTime() + POINTING_CLICK_COOLDOWN_MS;
+      setCooldownUntil(nextCooldownUntil);
+      if (cooldownTimerRef.current) window.clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = window.setTimeout(() => {
+        actionGuardRef.current = false;
+        setCooldownUntil(0);
+        cooldownTimerRef.current = null;
+      }, POINTING_CLICK_COOLDOWN_MS);
       setFeedback(created.event_status === "accepted"
         ? { type: "success", message: `${typeLabels[created.type]} enregistré à ${new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(created.pointed_at))}.` }
         : created.event_status === "pending"
@@ -378,6 +409,7 @@ export function PersonalClockingWorkspace({
       });
     } finally {
       setSubmitting(null);
+      if (!eventCreated) actionGuardRef.current = false;
     }
   }
 
@@ -391,6 +423,10 @@ export function PersonalClockingWorkspace({
         .rpc("cancel_own_clocking_event", { target_event_id: lastTodayEvent.id });
       if (error) throw error;
       setEvents((current) => current.map((event) => event.id === lastTodayEvent.id ? { ...event, event_status: "cancelled" } : event));
+      if (cooldownTimerRef.current) window.clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+      actionGuardRef.current = false;
+      setCooldownUntil(0);
       setFeedback({ type: "success", message: `${typeLabels[lastTodayEvent.type]} annulé.` });
     } catch (error) {
       const message = error instanceof Error
@@ -413,15 +449,21 @@ export function PersonalClockingWorkspace({
 
   return (
     <div className={`personal-clocking personal-clocking-${mode} ${showReports ? "personal-clocking-with-reports" : "personal-clocking-clock-only"}`}>
-      {showClocking && mode === "agent" && <section className="agent-clocking-experience">
+      {showClocking && <section className={`agent-clocking-experience ${mode === "manager" ? "manager-mobile-clocking" : ""}`}>
         <header className="agent-welcome">
           <div><span>{organisationName}</span><h1>Bonjour {fullname.split(" ")[0]}</h1><p>{new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone }).format(now)}</p></div>
-          <time dateTime={now.toISOString()}>{new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(now)}</time>
+          <time dateTime={now.toISOString()}>{new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone }).format(now)}</time>
         </header>
 
         <div className={`agent-command-card state-${agentState} action-${currentAction}`}>
           <div className="agent-command-glow" aria-hidden="true"><i /><i /><i /></div>
           {workPolicyMessage && <div className={`agent-policy-message ${workPolicyMessage.tone}`} role="status"><span>{workPolicyMessage.tone === "success" ? <Check size={17} /> : <BellRing size={17} />}</span><div><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></div></div>}
+          <div className="agent-mobile-clock-face">
+            <div className="agent-mobile-brand"><ZeControlLogo className="agent-mobile-logo" /></div>
+            <span>{new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone }).format(now)}</span>
+            <time dateTime={now.toISOString()}>{new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone }).format(now)}</time>
+            <small className={locationReady ? "is-ready" : "is-missing"}><UserRound size={17} /> {identifier}</small>
+          </div>
           <div className="agent-command-copy">
             <span className="agent-state-pill"><AgentStateIcon size={15} /> {agentStateCopy.eyebrow}</span>
             <h2>{agentStateCopy.title}</h2>
@@ -432,15 +474,16 @@ export function PersonalClockingWorkspace({
           <div className="agent-command-action">
             <div className="agent-action-orbit">
               <i aria-hidden="true" />
-              <button className="agent-action-button" type="button" onClick={() => void createEvent(currentAction)} disabled={Boolean(submitting) || !locationReady}>
-                <span>{submitting === currentAction ? <LoaderCircle className="spin" size={34} /> : <CurrentIcon size={34} />}</span>
-                <strong>{submitting === currentAction ? "Un instant..." : currentCopy.label}</strong>
-                <small>{currentCopy.hint}</small>
+              <button className="agent-action-button" type="button" onClick={() => void createEvent(currentAction)} disabled={isCompletedToday || isPointingLocked || !locationReady}>
+                <span>{submitting === currentAction ? <LoaderCircle className="spin" size={34} /> : cooldownSeconds > 0 ? <Check size={34} /> : <CurrentIcon size={34} />}</span>
+                <strong>{submitting === currentAction ? "Un instant..." : cooldownSeconds > 0 ? "Pointage enregistré" : currentCopy.label}</strong>
+                <small>{cooldownSeconds > 0 ? `Disponible dans ${cooldownSeconds} s` : currentCopy.hint}</small>
               </button>
             </div>
-            {(isWorking || isPaused) && <button className="agent-finish-button" type="button" onClick={() => void createEvent("end")} disabled={Boolean(submitting)}><LogOut size={16} /> Terminer ma journée</button>}
+            {(isWorking || isPaused) && <button className="agent-finish-button" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={16} /> Terminer ma journée</button>}
           </div>
 
+          <div className="agent-trust-note"><ShieldCheck size={16} /><span>Heure et localisation contrôlées</span></div>
           {!locationReady && <div className="agent-location-prerequisite" role="status"><LocateFixed size={19} /><span><strong>Le pointage n’est pas encore disponible</strong><small>La zone de travail doit être configurée par un administrateur.</small></span></div>}
           {canCancelLastEvent && <button className="agent-undo-action" type="button" onClick={() => void cancelLastEvent()} disabled={cancelling || Boolean(submitting)}>
             <span className="agent-undo-countdown" style={{ "--undo-progress": `${(cancellationSeconds / 30) * 360}deg` } as React.CSSProperties}><i>{cancellationSeconds}</i></span>
@@ -475,7 +518,7 @@ export function PersonalClockingWorkspace({
           </div>
           {selectedDay === today && (isWorking || isPaused) && <div className={`agent-live-strip ${isPaused ? "paused" : "working"}`}><span><i /> {isPaused ? "Pause en cours" : "Temps en cours"}</span><strong>{durationLabel(todayMinutes)}</strong></div>}
         </section>
-        <EventRequestPanel key={requestIntent?.key ?? "agent-request-dialog"} profileId={profileId} events={editableEvents} initialIntent={requestIntent} onClose={() => setRequestIntent(null)} showLauncher={false} />
+        <EventRequestPanel key={requestIntent?.key ?? "agent-request-dialog"} profileId={profileId} events={editableEvents} timeZone={timeZone} initialIntent={requestIntent} onClose={() => setRequestIntent(null)} showLauncher={false} />
         {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Voir mon activité</strong><small>Historique, repères et exports</small></span><ArrowRight size={16} /></Link>}
       </section>}
 
@@ -490,19 +533,19 @@ export function PersonalClockingWorkspace({
             <span className={isWorking ? "working" : isPaused ? "paused" : isCompletedToday ? "completed" : "resting"}>{isWorking ? <><ShieldCheck size={16} /> Journée en cours</> : isPaused ? <><CirclePause size={16} /> En pause</> : isCompletedToday ? <><Check size={16} /> Journée terminée</> : <><Check size={16} /> Prêt à pointer</>}</span>
             <p>{lastTodayEvent ? `Dernière action : ${typeLabels[lastTodayEvent.type]} à ${new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(lastTodayEvent.pointed_at))}` : "Votre journée commencera avec votre arrivée."}</p>
           </div>
-          <button className={`clocking-main-action action-${currentAction}`} type="button" onClick={() => void createEvent(currentAction)} disabled={Boolean(submitting) || !locationReady}>
-            <span>{submitting === currentAction ? <LoaderCircle className="spin" size={35} /> : <CurrentIcon size={35} />}</span>
-            <strong>{submitting === currentAction ? "Pointage en cours..." : currentCopy.label}</strong>
-            <small>{currentCopy.hint}</small>
+          <button className={`clocking-main-action action-${currentAction}`} type="button" onClick={() => void createEvent(currentAction)} disabled={isCompletedToday || isPointingLocked || !locationReady}>
+            <span>{submitting === currentAction ? <LoaderCircle className="spin" size={35} /> : cooldownSeconds > 0 ? <Check size={35} /> : <CurrentIcon size={35} />}</span>
+            <strong>{submitting === currentAction ? "Pointage en cours..." : cooldownSeconds > 0 ? "Pointage enregistré" : currentCopy.label}</strong>
+            <small>{cooldownSeconds > 0 ? `Disponible dans ${cooldownSeconds} s` : currentCopy.hint}</small>
           </button>
-          {(isWorking || isPaused) && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={Boolean(submitting)}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
+          {(isWorking || isPaused) && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
           <div className="clocking-assurance"><span className={locationReady ? "ready" : "missing"}><LocateFixed size={16} /> {locationReady ? "Localisation prête" : "Zone non configurée"}</span><span><Clock3 size={16} /> Heure fiable</span></div>
           {workPolicyMessage && <div className={`manager-policy-message ${workPolicyMessage.tone}`} role="status"><BellRing size={16} /><span><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></span></div>}
           {canCancelLastEvent && <button className="clocking-undo-action" type="button" onClick={() => void cancelLastEvent()} disabled={cancelling || Boolean(submitting)}><Undo2 size={16} /> {cancelling ? "Annulation..." : `Annuler (${cancellationSeconds}s)`}</button>}
           {feedback && <div className={`clocking-feedback ${feedback.type}`} role={feedback.type === "error" ? "alert" : "status"}>{feedback.type === "success" ? <Check size={18} /> : <AlertTriangle size={18} />}<span>{feedback.message}</span></div>}
         </div>
       </section>}
-      {showClocking && mode === "manager" && <EventRequestPanel profileId={profileId} events={editableEvents} />}
+      {showClocking && mode === "manager" && <EventRequestPanel profileId={profileId} events={editableEvents} timeZone={timeZone} />}
 
       {showReports && <section className="personal-reporting" aria-labelledby="personal-reports-title">
         <div className="personal-section-heading"><div><span>Mon activité</span><h2 id="personal-reports-title">Mes repères en un coup d’œil</h2></div><CalendarDays size={22} /></div>

@@ -20,8 +20,8 @@ export function AgentShell({ children, fullname }: { children: React.ReactNode; 
       </header>
       <section className="agent-main">{children}</section>
       <nav className="agent-mobile-navigation" aria-label="Navigation principale">
-        <DashboardNavLink href="/dashboard" label="Pointer" icon="clocking" match="exact" />
         <DashboardNavLink href="/dashboard/mon-activite" label="Activité" icon="reports" />
+        <DashboardNavLink href="/dashboard" label="Pointer" icon="clocking" match="exact" />
         <DashboardNavLink href="/dashboard/parametres/profil" label="Profil" icon="settings" />
       </nav>
     </main>

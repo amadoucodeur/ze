@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AccessRoleSynchronizer } from "@/components/dashboard/access-role-synchronizer";
 import { AgentShell } from "@/components/dashboard/agent-shell";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
@@ -27,18 +28,26 @@ export default async function DashboardLayout({
   }
 
   if (productRole === "agent") {
-    return <AgentShell fullname={access.profile.fullname}>{children}</AgentShell>;
+    return (
+      <>
+        <AccessRoleSynchronizer profileId={access.profile.id} role={productRole} />
+        <AgentShell fullname={access.profile.fullname}>{children}</AgentShell>
+      </>
+    );
   }
 
   return (
-    <DashboardShell
-      fullname={access.profile.fullname}
-      role={productRole}
-      organisationName={access.organisation?.name ?? null}
-      canManageTeam={canManageTeam}
-      pendingRequestCount={pendingRequestCount}
-    >
-      {children}
-    </DashboardShell>
+    <>
+      <AccessRoleSynchronizer profileId={access.profile.id} role={productRole} />
+      <DashboardShell
+        fullname={access.profile.fullname}
+        role={productRole}
+        organisationName={access.organisation?.name ?? null}
+        canManageTeam={canManageTeam}
+        pendingRequestCount={pendingRequestCount}
+      >
+        {children}
+      </DashboardShell>
+    </>
   );
 }

@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { Check, Download, RefreshCw, Share, WifiOff, X } from "lucide-react";
+import { Bell, BellRing, Check, Download, RefreshCw, RotateCcw, Share, Smartphone, WifiOff, X } from "lucide-react";
+import { currentWorkPolicyMessage, type EvaluatedClockingEvent } from "@/lib/work-policy-evaluation";
+import { isWorkPolicyDefinition } from "@/lib/work-policy";
+import { dateKey, zonedDayBoundary } from "@/lib/reports/period";
+import { createClient } from "@/lib/supabase/client";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -11,6 +15,9 @@ type InstallPromptEvent = Event & {
 
 const INSTALL_SNOOZE_KEY = "zecontrol-pwa-install-snoozed-until";
 const INSTALL_SNOOZE_DAYS = 30;
+const REMINDER_ENABLED_KEY = "zecontrol-pwa-reminders-enabled";
+const REMINDER_SNOOZE_KEY = "zecontrol-pwa-reminders-snoozed-until";
+const REMINDER_SENT_PREFIX = "zecontrol-pwa-reminder-sent:";
 
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches ||
@@ -40,6 +47,55 @@ function snoozeInstall() {
   }
 }
 
+function nextDay(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function reminderCategory(
+  message: { title: string },
+  events: EvaluatedClockingEvent[],
+) {
+  const last = events.at(-1);
+  if (!last) {
+    return /commence/i.test(message.title) ? "start-soon" : "missing-start";
+  }
+  if (last.type === "break") return "resume";
+  if (/pause/i.test(message.title)) return "take-break";
+  return "finish-day";
+}
+
+function fallbackClockingReminder(
+  events: EvaluatedClockingEvent[],
+  now: Date,
+) {
+  const last = events.at(-1);
+  if (!last) return null;
+  const elapsed = Math.floor(
+    (now.getTime() - new Date(last.pointed_at).getTime()) / 60_000,
+  );
+  if (last.type === "break" && elapsed >= 60) {
+    return {
+      tone: "reminder" as const,
+      title: `Pause en cours depuis ${elapsed} min`,
+      message: "Pensez à enregistrer votre reprise lorsque vous recommencez.",
+    };
+  }
+  if (
+    (last.type === "start" || last.type === "resume") &&
+    elapsed >= 10 * 60
+  ) {
+    return {
+      tone: "reminder" as const,
+      title: "Votre journée est toujours ouverte",
+      message: "Si vous avez terminé, pensez à enregistrer votre départ.",
+    };
+  }
+  return null;
+}
+
 function subscribeToConnectivity(callback: () => void) {
   window.addEventListener("online", callback);
   window.addEventListener("offline", callback);
@@ -55,6 +111,7 @@ function subscribeToBrowserReady() {
 
 export function PwaLifecycle() {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
   const online = useSyncExternalStore(
     subscribeToConnectivity,
     () => window.navigator.onLine,
@@ -73,6 +130,13 @@ export function PwaLifecycle() {
   const [installEligible, setInstallEligible] = useState(false);
   const [connectionRecovered, setConnectionRecovered] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [reminderEligible, setReminderEligible] = useState(false);
+  const [reminderDismissed, setReminderDismissed] = useState(false);
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   const installSnoozed = browserReady ? isInstallSnoozed() : true;
   const showIosInstall = browserReady &&
     installEligible &&
@@ -81,6 +145,16 @@ export function PwaLifecycle() {
     !installSnoozed &&
     isIosDevice() &&
     !isStandalone();
+
+  useEffect(() => {
+    if (!isStandalone()) return;
+    const orientation = window.screen.orientation as
+      | (ScreenOrientation & {
+          lock?: (value: "portrait-primary") => Promise<void>;
+        })
+      | undefined;
+    void orientation?.lock?.("portrait-primary").catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
@@ -157,6 +231,164 @@ export function PwaLifecycle() {
   }, [pathname]);
 
   useEffect(() => {
+    if (!browserReady || !pathname.startsWith("/dashboard")) return;
+    try {
+      const enabled =
+        window.localStorage.getItem(REMINDER_ENABLED_KEY) === "true" &&
+        "Notification" in window &&
+        Notification.permission === "granted";
+      const snoozedUntil = Number(
+        window.localStorage.getItem(REMINDER_SNOOZE_KEY) ?? "0",
+      );
+      if (enabled) {
+        const timer = window.setTimeout(
+          () => setRemindersEnabled(true),
+          0,
+        );
+        return () => window.clearTimeout(timer);
+      }
+      if (
+        "Notification" in window &&
+        Notification.permission === "default" &&
+        snoozedUntil <= Date.now() &&
+        (!isIosDevice() || isStandalone())
+      ) {
+        const timer = window.setTimeout(
+          () => setReminderEligible(true),
+          18_000,
+        );
+        return () => window.clearTimeout(timer);
+      }
+    } catch {
+      // Notifications remain optional when browser storage is unavailable.
+    }
+  }, [browserReady, pathname]);
+
+  useEffect(() => {
+    if (
+      !remindersEnabled ||
+      !online ||
+      !pathname.startsWith("/dashboard")
+    ) {
+      return;
+    }
+
+    let active = true;
+    let hideTimer: number | undefined;
+
+    async function checkReminder() {
+      const { data: authData } = await supabase.auth.getUser();
+      const profileId = authData.user?.id;
+      if (!profileId || !active) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("organisation_id")
+        .eq("id", profileId)
+        .maybeSingle();
+      if (!profile?.organisation_id || !active) return;
+
+      const { data: config } = await supabase
+        .schema("zecontrol")
+        .from("orga_configs")
+        .select("timezone")
+        .eq("id", profile.organisation_id)
+        .maybeSingle();
+      const timeZone = config?.timezone || "Africa/Abidjan";
+      const now = new Date();
+      const today = dateKey(now, timeZone);
+
+      const [eventsResult, policyResult] = await Promise.all([
+        supabase
+          .schema("zecontrol")
+          .from("events")
+          .select("type, event_status, pointed_at")
+          .eq("profile_id", profileId)
+          .in("event_status", ["accepted", "pending"])
+          .gte(
+            "pointed_at",
+            zonedDayBoundary(today, timeZone).toISOString(),
+          )
+          .lt(
+            "pointed_at",
+            zonedDayBoundary(nextDay(today), timeZone).toISOString(),
+          )
+          .order("pointed_at", { ascending: true }),
+        supabase
+          .schema("zecontrol")
+          .rpc("resolve_work_policy", {
+            target_profile_id: profileId,
+            target_work_date: today,
+          }),
+      ]);
+      if (!active || eventsResult.error || policyResult.error) return;
+
+      const resolved = policyResult.data as { definition?: unknown } | null;
+      const events = (eventsResult.data ?? []) as EvaluatedClockingEvent[];
+      const message = isWorkPolicyDefinition(resolved?.definition)
+        ? currentWorkPolicyMessage({
+            definition: {
+              ...resolved.definition,
+              daySchedules: resolved.definition.daySchedules ?? {},
+            },
+            events,
+            now,
+            timeZone,
+          }) ?? fallbackClockingReminder(events, now)
+        : fallbackClockingReminder(events, now);
+      if (
+        !message ||
+        message.tone === "success" ||
+        /aucun horaire prévu/i.test(message.title)
+      ) {
+        return;
+      }
+
+      const category = reminderCategory(message, events);
+      const sentKey = `${REMINDER_SENT_PREFIX}${today}:${category}`;
+      try {
+        if (window.localStorage.getItem(sentKey)) return;
+        window.localStorage.setItem(sentKey, now.toISOString());
+      } catch {
+        // The service worker tag still prevents visible duplicates.
+      }
+
+      setReminderMessage({
+        title: message.title,
+        message: message.message,
+      });
+      if (hideTimer) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => setReminderMessage(null), 12_000);
+
+      if ("serviceWorker" in navigator && Notification.permission === "granted") {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (registration) {
+          await registration.showNotification(message.title, {
+            body: message.message,
+            icon: "/pwa/icon-192.png",
+            badge: "/pwa/icon-192.png",
+            tag: `zecontrol-${today}-${category}`,
+            data: { url: "/dashboard" },
+          });
+        }
+      }
+    }
+
+    void checkReminder();
+    const interval = window.setInterval(() => void checkReminder(), 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void checkReminder();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      if (hideTimer) window.clearTimeout(hideTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [online, pathname, remindersEnabled, supabase]);
+
+  useEffect(() => {
     let timer: number | undefined;
     if (online && !previousOnline.current) {
       setConnectionRecovered(true);
@@ -185,8 +417,53 @@ export function PwaLifecycle() {
     setShowIosHelp(false);
   }
 
+  async function enableReminders() {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setReminderEligible(false);
+    if (permission === "granted") {
+      try {
+        window.localStorage.setItem(REMINDER_ENABLED_KEY, "true");
+      } catch {
+        // The permission remains valid for the current browser session.
+      }
+      setRemindersEnabled(true);
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (registration) {
+          await registration.showNotification("Rappels activés", {
+            body: "ZeControl vous aidera à ne plus oublier une arrivée, une reprise ou un départ.",
+            icon: "/pwa/icon-192.png",
+            badge: "/pwa/icon-192.png",
+            tag: "zecontrol-reminders-enabled",
+            data: { url: "/dashboard" },
+          });
+        }
+      }
+    }
+  }
+
+  function dismissReminders() {
+    try {
+      window.localStorage.setItem(
+        REMINDER_SNOOZE_KEY,
+        String(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      );
+    } catch {
+      // The prompt is still dismissed for the current session.
+    }
+    setReminderDismissed(true);
+    setReminderEligible(false);
+  }
+
   return (
     <>
+      <div className="portrait-orientation-guard" role="alert" aria-live="assertive">
+        <span aria-hidden="true"><Smartphone size={42} /><RotateCcw size={22} /></span>
+        <strong>Tournez votre téléphone</strong>
+        <small>ZeControl s’utilise en mode portrait.</small>
+      </div>
+
       {!online && (
         <div className="pwa-connectivity-toast is-offline" role="status" aria-live="polite" aria-atomic="true">
           <WifiOff size={16} />
@@ -198,6 +475,17 @@ export function PwaLifecycle() {
         <div className="pwa-connectivity-toast is-online" role="status" aria-live="polite" aria-atomic="true">
           <Check size={16} />
           <span><strong>Connexion rétablie</strong><small>ZeControl est de nouveau à jour.</small></span>
+        </div>
+      )}
+
+      {reminderMessage && online && (
+        <div className="pwa-connectivity-toast pwa-reminder-toast" role="status" aria-live="polite">
+          <BellRing size={17} />
+          <span>
+            <strong>{reminderMessage.title}</strong>
+            <small>{reminderMessage.message}</small>
+          </span>
+          <button type="button" aria-label="Fermer" onClick={() => setReminderMessage(null)}><X size={15} /></button>
         </div>
       )}
 
@@ -230,6 +518,26 @@ export function PwaLifecycle() {
           <button className="pwa-install-dismiss" type="button" aria-label="Plus tard" onClick={dismissInstall}><X size={16} /></button>
         </div>
       )}
+
+      {reminderEligible &&
+        !reminderDismissed &&
+        !remindersEnabled &&
+        pathname.startsWith("/dashboard") &&
+        online &&
+        !connectionRecovered &&
+        !updateAvailable &&
+        !installPrompt &&
+        !showIosInstall && (
+          <div className="pwa-install-prompt pwa-reminder-prompt" role="status" aria-live="polite">
+            <span className="pwa-install-icon"><Bell size={18} /></span>
+            <span>
+              <strong>Ne plus oublier de pointer</strong>
+              <small>Recevez un rappel utile pour l’arrivée, la reprise ou le départ.</small>
+            </span>
+            <button className="pwa-install-action" type="button" onClick={() => void enableReminders()}>Activer</button>
+            <button className="pwa-install-dismiss" type="button" aria-label="Plus tard" onClick={dismissReminders}><X size={16} /></button>
+          </div>
+        )}
     </>
   );
 }

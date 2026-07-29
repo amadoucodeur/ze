@@ -441,6 +441,7 @@ export async function updateCollaboratorAction(
 
   revalidatePath("/dashboard/equipe");
   revalidatePath(`/dashboard/equipe/${target.id}`);
+  revalidatePath("/dashboard", "layout");
   return { success: "Les informations et la configuration ont été mises à jour." };
 }
 

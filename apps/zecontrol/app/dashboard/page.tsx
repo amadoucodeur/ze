@@ -23,6 +23,7 @@ export default async function DashboardPage({
         organisationId={access.organisation.id}
         organisationName={access.organisation.name}
         fullname={access.profile.fullname}
+        identifier={access.profile.identifiant}
         canRemote={access.productProfile.can_remote}
         timeZone={access.organisation.timezone}
         mode="agent"

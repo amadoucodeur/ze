@@ -1297,6 +1297,7 @@ export function PersonalActivityDashboard({
       <EventRequestPanel
         key={requestIntent?.key ?? "activity-request"}
         profileId={profileId}
+        timeZone={timeZone}
         events={events
           .filter(
             (event) =>

@@ -26,7 +26,7 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
       .from("profiles")
       .select("id, fullname, identifiant, email, role, is_active, last_login_at, created_at")
       .eq("organisation_id", access.organisation.id)
-      .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: false }),
     admin
       .schema("zecontrol")
       .from("profiles_configs")

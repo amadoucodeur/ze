@@ -1,4 +1,4 @@
-const STATIC_CACHE = "zecontrol-static-v2";
+const STATIC_CACHE = "zecontrol-static-v3";
 const STATIC_ASSETS = [
   "/offline.html",
   "/pwa/icon-192.png",
@@ -64,4 +64,26 @@ self.addEventListener("fetch", (event) => {
       caches.match(request).then((cached) => cached || fetch(request)),
     );
   }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  const targetUrl = event.notification.data?.url || "/dashboard";
+  event.notification.close();
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then(async (clients) => {
+        for (const client of clients) {
+          const clientUrl = new URL(client.url);
+          if (clientUrl.origin === self.location.origin) {
+            await client.focus();
+            if ("navigate" in client) await client.navigate(targetUrl);
+            return;
+          }
+        }
+        if (self.clients.openWindow) {
+          await self.clients.openWindow(targetUrl);
+        }
+      }),
+  );
 });

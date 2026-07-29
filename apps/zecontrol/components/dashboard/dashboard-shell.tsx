@@ -93,11 +93,11 @@ function UserSummary({ fullname, role }: { fullname: string; role: ZeControlRole
   );
 }
 
-function LogoutForm() {
+function LogoutForm({ compact = false }: { compact?: boolean }) {
   return (
-    <form action={logoutAction}>
+    <form className={compact ? "dashboard-mobile-header-logout" : undefined} action={logoutAction}>
       <button type="submit" aria-label="Se déconnecter">
-        <LogOut size={18} /> <span>Se déconnecter</span>
+        <LogOut size={18} /> {!compact && <span>Se déconnecter</span>}
       </button>
     </form>
   );
@@ -143,21 +143,15 @@ export function DashboardShell({
         <Link href="/dashboard" className="dashboard-brand" aria-label="ZeControl — Accueil">
           <ZeControlLogo inverse />
         </Link>
-        <div className="dashboard-mobile-workspace">
-          <small>{roleLabel(role)}</small>
-          <strong>{organisationName ?? "À configurer"}</strong>
-        </div>
-        <Link className="dashboard-mobile-profile" href="/dashboard/parametres/profil" aria-label="Ouvrir mon profil">
-          {fullname.slice(0, 2).toUpperCase()}
-        </Link>
+        <LogoutForm compact />
       </header>
       <nav className="dashboard-mobile-dock" aria-label="Navigation mobile principale">
         <DashboardNavLink href="/dashboard" label="Direct" icon="home" match="exact" />
         {organisationName && canManageTeam && (
-          <DashboardNavLink href="/dashboard/pointage" label="Pointer" icon="clocking" />
+          <DashboardNavLink href="/dashboard/rapports" label="Rapports" icon="reports" />
         )}
         {organisationName && canManageTeam && (
-          <DashboardNavLink href="/dashboard/rapports" label="Rapports" icon="reports" />
+          <DashboardNavLink href="/dashboard/pointage" label="Pointer" icon="clocking" />
         )}
         {organisationName && canManageTeam && (
           <DashboardNavLink href="/dashboard/equipe" label="Équipe" icon="team" />

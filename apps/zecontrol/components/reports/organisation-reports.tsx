@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
@@ -27,10 +28,11 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { AdminMissingEventPanel } from "@/components/clocking/admin-missing-event-panel";
 import { createClient } from "@/lib/supabase/client";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
 import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
-import { dateKey, defaultPeriodDates, periodLabel, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
+import { dateKey, defaultPeriodDates, periodLabel, zonedDateTime, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
 import { scheduleForDay } from "@/lib/work-policy";
 import { currentWorkPolicyMessage, evaluateWorkday, weekdayForDate } from "@/lib/work-policy-evaluation";
 import {
@@ -293,6 +295,10 @@ export function OrganisationReports({
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [expandedProfileIds, setExpandedProfileIds] = useState<string[]>([]);
+  const [adminMissingIntent, setAdminMissingIntent] = useState<{
+    profileId?: string;
+    requestedAt?: string;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -770,6 +776,7 @@ export function OrganisationReports({
         <span>{view === "live" ? "Aujourd’hui" : rangeLabel}</span>
         {view === "live" && <span className={`admin-live-state ${liveStatus}`}><i /> {liveStatus === "live" ? "Temps réel" : liveStatus === "connecting" ? "Connexion au direct" : "Direct indisponible"}</span>}
         {lastUpdatedAt && <small>Mis à jour à {new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone }).format(lastUpdatedAt)} · {timeZone}</small>}
+        <button className="admin-report-add-missing" type="button" onClick={() => setAdminMissingIntent({ profileId: selectedProfile?.id })}><Plus size={15} /> Ajouter un oubli</button>
         <button type="button" onClick={refresh} disabled={refreshing} aria-label="Actualiser"><RefreshCw className={refreshing ? "spin" : ""} size={14} /> Actualiser</button>
       </div>
 
@@ -901,10 +908,12 @@ export function OrganisationReports({
                 return <article className={`detail-event event-${event.type} status-${event.event_status}`} key={event.id}><span><Icon size={17} /></span><div><small>{typeLabels[event.type]}</small><strong>{timeLabel(event, timeZone)}</strong></div><em>{event.event_status === "accepted" ? "Validé" : event.event_status === "pending" ? "À vérifier" : event.event_status === "rejected" ? "Refusé" : "Annulé"}</em></article>;
               }) : <div className="admin-detail-empty"><Clock3 size={22} /><strong>Aucun pointage</strong><p>Ce collaborateur n’a pas encore commencé cette journée.</p></div>}
             </div>
-            <footer className="admin-detail-actions"><Link href={`/dashboard/equipe/${selectedRow.profile.id}`}><Settings2 size={15} /> Gérer le profil</Link>{selectedRow.status === "attention" && <Link href="/dashboard/demandes"><AlertTriangle size={15} /> Voir les demandes</Link>}</footer>
+            <footer className="admin-detail-actions"><button type="button" onClick={() => { setAdminMissingIntent({ profileId: selectedRow.profile.id, requestedAt: zonedDateTime(`${selectedRow.day}T09:00`, timeZone).toISOString() }); setSelectedRowKey(null); }}><Plus size={15} /> Ajouter un pointage</button><Link href={`/dashboard/equipe/${selectedRow.profile.id}`}><Settings2 size={15} /> Gérer le profil</Link>{selectedRow.status === "attention" && <Link href="/dashboard/demandes"><AlertTriangle size={15} /> Voir les demandes</Link>}</footer>
           </aside>
         </div>
       )}
+
+      {adminMissingIntent && <AdminMissingEventPanel profiles={profiles} timeZone={timeZone} initialProfileId={adminMissingIntent.profileId} initialRequestedAt={adminMissingIntent.requestedAt} onClose={() => setAdminMissingIntent(null)} onCreated={() => { setRefreshing(true); setReloadToken((value) => value + 1); }} />}
     </div>
   );
 }

@@ -12,7 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",
-    orientation: "any",
+    orientation: "portrait-primary",
     launch_handler: {
       client_mode: "navigate-existing",
     },

@@ -55,6 +55,42 @@ export function zonedDayBoundary(value: string, timeZone: string) {
   return new Date(utcGuess - (representedAsUtc - utcGuess));
 }
 
+export function zonedDateTime(value: string, timeZone: string) {
+  const [datePart, timePart = "00:00"] = value.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  if (
+    !year ||
+    !month ||
+    !day ||
+    Number.isNaN(hour) ||
+    Number.isNaN(minute)
+  ) {
+    return new Date(Number.NaN);
+  }
+
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(utcGuess));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((item) => item.type === type)?.value ?? 0);
+  const representedAsUtc = Date.UTC(
+    part("year"),
+    part("month") - 1,
+    part("day"),
+    part("hour"),
+    part("minute"),
+  );
+  return new Date(utcGuess - (representedAsUtc - utcGuess));
+}
+
 export function periodLabel(period: ReportPeriod, start: string, end: string) {
   if (period === "all") return "Toutes les données";
   const formatter = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" });
