@@ -26,11 +26,13 @@ type ProfileSettingsFormProps = {
     poste: string | null;
     service: string | null;
   };
+  showProfessional?: boolean;
 };
 
 export function ProfileSettingsForm({
   profile,
   config,
+  showProfessional = true,
 }: ProfileSettingsFormProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -75,7 +77,12 @@ export function ProfileSettingsForm({
         return;
       }
 
-      setFeedback({ type: "success", message: "Votre profil et votre configuration ont été mis à jour." });
+      setFeedback({
+        type: "success",
+        message: showProfessional
+          ? "Votre profil et votre configuration ont été mis à jour."
+          : "Votre profil a été mis à jour.",
+      });
       router.refresh();
     } catch {
       setFeedback({
@@ -117,7 +124,7 @@ export function ProfileSettingsForm({
         </div>
       </section>
 
-      <section className="settings-card">
+      {showProfessional && <section className="settings-card">
         <div className="settings-card-heading">
           <span className="settings-icon settings-icon-soft"><BriefcaseBusiness size={19} /></span>
           <div>
@@ -135,7 +142,7 @@ export function ProfileSettingsForm({
             <div className="settings-input"><Building2 size={17} /><input value={service} onChange={(event) => setService(event.target.value)} placeholder="Ex. Opérations" maxLength={100} /></div>
           </label>
         </div>
-      </section>
+      </section>}
 
       {feedback && <div className={`form-message form-${feedback.type}`} role={feedback.type === "error" ? "alert" : "status"}>{feedback.type === "success" && <Check size={16} />} {feedback.message}</div>}
       <div className="settings-actions settings-actions-sticky">

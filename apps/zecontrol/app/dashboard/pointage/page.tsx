@@ -12,7 +12,7 @@ export default async function AdminClockingPage() {
     access.status !== "ready" ||
     !access.organisation ||
     !access.productProfile ||
-    access.productProfile.role === "agent"
+    access.productProfile.role !== "admin"
   ) {
     redirect("/dashboard");
   }

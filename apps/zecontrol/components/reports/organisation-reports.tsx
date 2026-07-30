@@ -323,7 +323,11 @@ export function OrganisationReports({
         setRefreshing(false);
         return;
       }
-      setProfiles((profileResult.data ?? []) as ReportProfile[]);
+      setProfiles(
+        ((profileResult.data ?? []) as ReportProfile[]).filter(
+          (profile) => profile.role !== "owner",
+        ),
+      );
     }
 
     async function loadEvents() {

@@ -10,7 +10,12 @@ export const metadata: Metadata = { title: "Mon activité" };
 export default async function MyActivityPage() {
   const access = await getCurrentZeControlAccess();
   if (!access) redirect("/connexion");
-  if (access.status !== "ready" || !access.organisation || !access.productProfile) {
+  if (
+    access.status !== "ready" ||
+    !access.organisation ||
+    !access.productProfile ||
+    access.productProfile.role === "owner"
+  ) {
     redirect("/dashboard");
   }
 

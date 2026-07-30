@@ -19,22 +19,23 @@ export default async function ProfileSettingsPage() {
     redirect("/dashboard");
   }
   const productProfile = access.productProfile;
+  const isOwner = productProfile.role === "owner";
 
   return (
     <div className="dashboard-settings-page">
       <header className="dashboard-content-header">
-        <div><span>Compte personnel</span><h1>Mon profil</h1><p>Vos informations personnelles et professionnelles.</p></div>
+        <div><span>Compte personnel</span><h1>Mon profil</h1><p>{isOwner ? "Les informations de votre compte propriétaire." : "Vos informations personnelles et professionnelles."}</p></div>
         <div className="settings-page-avatar"><UserRound size={23} /></div>
       </header>
       <div className="settings-layout">
-        <ProfileSettingsForm profile={access.profile} config={productProfile} />
+        <ProfileSettingsForm profile={access.profile} config={productProfile} showProfessional={!isOwner} />
         <aside className="settings-aside">
           <section className="settings-summary-card">
             <span><ShieldCheck size={20} /></span>
             <h3>Configuration ZeControl</h3>
-            <p>Vos règles de pointage sont définies par l’administration de votre organisation.</p>
+            <p>{isOwner ? "Ce compte est réservé à la gestion de l’organisation et ne participe pas au pointage." : "Vos règles de pointage sont définies par l’administration de votre organisation."}</p>
             <div><small>Rôle</small><strong>{roleLabels[productProfile.role]}</strong></div>
-            <div><small>Pointage à distance</small><strong>{productProfile.can_remote ? "Autorisé" : "Sur site uniquement"}</strong></div>
+            <div><small>{isOwner ? "Accès" : "Pointage à distance"}</small><strong>{isOwner ? "Gestion uniquement" : productProfile.can_remote ? "Autorisé" : "Sur site uniquement"}</strong></div>
             <div><small>Organisation</small><strong>{access.organisation.name}</strong></div>
           </section>
           <div className="settings-tip"><KeyRound size={18} /><p>Votre rôle et vos droits sont gérés par l’administration de votre organisation.</p></div>

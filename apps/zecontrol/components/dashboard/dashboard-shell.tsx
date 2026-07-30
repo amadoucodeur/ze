@@ -39,7 +39,7 @@ function DashboardNavigation({
   return (
     <>
       <DashboardNavLink href="/dashboard" label="En direct" icon="home" match="exact" />
-      {organisationName && canManageTeam && (
+      {organisationName && canManageTeam && role === "admin" && (
         <DashboardNavLink href="/dashboard/pointage" label="Mon pointage" icon="clocking" />
       )}
       {organisationName && canManageTeam && (
@@ -150,7 +150,7 @@ export function DashboardShell({
         {organisationName && canManageTeam && (
           <DashboardNavLink href="/dashboard/rapports" label="Rapports" icon="reports" />
         )}
-        {organisationName && canManageTeam && (
+        {organisationName && canManageTeam && role === "admin" && (
           <DashboardNavLink href="/dashboard/pointage" label="Pointer" icon="clocking" />
         )}
         {organisationName && canManageTeam && (
