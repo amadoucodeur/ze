@@ -1390,52 +1390,52 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   border-radius: 16px;
   background: #e8f0ed;
 }
-.location-map-preview iframe { width: 100%; height: 300px; display: block; border: 0; filter: saturate(.72) contrast(.96); }
-.location-map-radius {
-  aspect-ratio: 1;
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  place-items: start center;
-  border: 2px solid rgba(3, 142, 132, .9);
-  border-radius: 50%;
-  background: rgba(40, 201, 187, .2);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, .8),
-    inset 0 0 30px rgba(17, 167, 155, .12);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: height .25s ease;
-}
-.location-map-radius::after {
-  content: "";
-  width: 9px;
-  aspect-ratio: 1;
-  position: absolute;
-  top: 50%;
-  left: 50%;
+.location-leaflet-map { width: 100%; height: 300px; z-index: 0; filter: saturate(.78) contrast(.98); }
+.location-leaflet-center-marker {
+  width: 24px !important;
+  height: 24px !important;
+  display: grid !important;
+  place-items: center;
   border: 2px solid #fff;
   border-radius: 50%;
   background: #087f78;
-  box-shadow: 0 2px 8px rgba(4, 53, 61, .3);
-  transform: translate(-50%, -50%);
+  box-shadow: 0 4px 14px rgba(4, 53, 61, .35);
 }
-.location-map-radius > i {
-  padding: 5px 8px;
-  border-radius: 999px;
-  color: #fff;
-  background: #087f78;
-  box-shadow: 0 4px 12px rgba(4, 53, 61, .22);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 900;
-  transform: translateY(-50%);
-  white-space: nowrap;
+.location-leaflet-center-marker > span {
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fff;
 }
-.location-map-preview > div {
-  z-index: 2;
+.location-leaflet-radius-label {
+  padding: 5px 8px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  background: #087f78 !important;
+  box-shadow: 0 4px 12px rgba(4, 53, 61, .22) !important;
+  font-family: var(--font-body), sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+.location-leaflet-radius-label::before { border-top-color: #087f78 !important; }
+.location-map-preview .leaflet-control-zoom {
+  overflow: hidden;
+  border: 1px solid rgba(18, 45, 57, .13);
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(11, 38, 51, .12);
+}
+.location-map-preview .leaflet-control-zoom a {
+  color: #244750;
+  border-bottom-color: #e2e9e7;
+}
+.location-map-preview .leaflet-control-attribution {
+  color: #71858a;
+  background: rgba(255, 255, 255, .82);
+  font-size: 8px;
+}
+.location-map-caption {
+  z-index: 700;
   min-height: 54px;
   padding: 9px 12px;
   display: flex;
@@ -1451,8 +1451,8 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   box-shadow: 0 10px 25px rgba(11,38,51,.13);
   backdrop-filter: blur(12px);
 }
-.location-map-preview > div > svg { color: #087f7b; }
-.location-map-preview > div > span { display: grid; gap: 2px; }
+.location-map-caption > svg { color: #087f7b; }
+.location-map-caption > span { display: grid; gap: 2px; }
 .location-map-preview strong { font-size: 12px; }
 .location-map-preview small { color: #71858a; font-size: 11px; font-weight: 600; }
 .location-preview-link { width: fit-content; min-height: 42px; margin-top: 17px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; border-radius: 10px; color: #087f7b; background: #e5f5f1; font-size: 12px; font-weight: 800; }
@@ -1557,7 +1557,7 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   .organisation-logo-uploader { grid-template-columns: 50px 1fr; }
   .organisation-logo-large { width: 50px; height: 50px; }
   .organisation-logo-uploader label { grid-column: 1 / -1; width: 100%; justify-content: center; }
-  .location-map-preview, .location-map-preview iframe { min-height: 250px; height: 250px; }
+  .location-map-preview, .location-leaflet-map { min-height: 250px; height: 250px; }
 }
 
 /* Personal clocking experience */

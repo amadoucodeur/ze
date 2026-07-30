@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Manrope } from "next/font/google";
 import { PwaLifecycle } from "@/components/pwa/pwa-lifecycle";
 import "@ze/ui-foundations/brands.css";
+import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
 const displayFont = Manrope({

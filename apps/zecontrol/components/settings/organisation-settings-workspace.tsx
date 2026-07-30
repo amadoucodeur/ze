@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/client";
+import { LocationRadiusMap } from "./location-radius-map";
 
 type OrganisationIdentity = {
   name: string;
@@ -335,22 +336,10 @@ export function OrganisationSettingsWorkspace({
     ) {
       return null;
     }
-    const latitudeDelta = Math.max(radius / 111_320, 0.002);
-    const longitudeDelta = Math.max(latitudeDelta / Math.max(Math.cos(lat * Math.PI / 180), 0.2), 0.002);
-    const bbox = [
-      long - longitudeDelta * 2.5,
-      lat - latitudeDelta * 2.5,
-      long + longitudeDelta * 2.5,
-      lat + latitudeDelta * 2.5,
-    ].join(",");
-    const visibleHeightMeters = latitudeDelta * 5 * 111_320;
-    const diameterPercent = Math.min(
-      72,
-      Math.max(8, (radius * 2 * 100) / visibleHeightMeters),
-    );
     return {
-      url: `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${long}`)}`,
-      diameterPercent,
+      lat,
+      long,
+      radius,
       radiusLabel: new Intl.NumberFormat("fr-FR").format(Math.round(radius)),
     };
   }, [location.lat, location.long, location.radius]);
@@ -396,19 +385,12 @@ export function OrganisationSettingsWorkspace({
           <div className="location-toolbar"><button className="button button-ghost" type="button" onClick={useCurrentLocation} disabled={locating}>{locating ? <LoaderCircle className="spin" size={17} /> : <Crosshair size={17} />} Utiliser ma position actuelle</button><p>Faites cette opération depuis le site, idéalement à l’extérieur ou près d’une fenêtre.</p></div>
           {mapPreview && (
             <div className="location-map-preview">
-              <iframe
-                title={`Aperçu de la zone autorisée de ${mapPreview.radiusLabel} mètres`}
-                src={mapPreview.url}
-                loading="lazy"
+              <LocationRadiusMap
+                latitude={mapPreview.lat}
+                longitude={mapPreview.long}
+                radius={mapPreview.radius}
               />
-              <span
-                className="location-map-radius"
-                style={{ height: `${mapPreview.diameterPercent}%` }}
-                aria-hidden="true"
-              >
-                <i>{mapPreview.radiusLabel} m</i>
-              </span>
-              <div>
+              <div className="location-map-caption" aria-live="polite">
                 <MapPin size={16} />
                 <span>
                   <strong>Zone autorisée · {mapPreview.radiusLabel} m</strong>
