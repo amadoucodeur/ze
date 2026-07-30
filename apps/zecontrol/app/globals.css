@@ -4245,10 +4245,8 @@ button.report-day-line:hover { background: #edf8f5; }
 .admin-detail-state.paused { color: #9a6121; background: #fff0d7; }
 .admin-status-cell.completed > span,
 .admin-detail-state.completed { color: #176f9d; background: #e5f1f8; }
-.admin-status-cell.not-started > span,
-.admin-detail-state.not-started { color: #6f8085; background: #edf1f1; }
-.admin-status-cell.attention > span,
-.admin-detail-state.attention { color: #a04f45; background: #ffebe7; }
+.admin-status-cell.absent > span,
+.admin-detail-state.absent { color: #a04f45; background: #ffebe7; }
 
 .admin-table-pagination {
   min-height: 56px;
@@ -4544,14 +4542,17 @@ button.report-day-line:hover { background: #edf8f5; }
 .live-state-tabs button.working > i { background: #28b88a; }
 .live-state-tabs button.paused > i { background: #e49b3e; }
 .live-state-tabs button.completed > i { background: #389bc6; }
-.live-state-tabs button.attention > i { background: #d9675b; }
+.live-state-tabs button.absent > i { background: #d9675b; }
 .live-state-tabs button.active { color: #fff; border-color: var(--navy); background: var(--navy); box-shadow: 0 8px 20px rgba(0,63,93,.18); }
 .live-state-tabs button strong { min-width: 24px; padding: 3px 6px; border-radius: 999px; color: inherit; background: rgba(127,145,150,.12); font-size: 11px; text-align: center; }
 .live-state-tabs button.active strong { background: rgba(255,255,255,.16); }
 .live-team-filters {
   padding: 12px 24px;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(190px, auto);
+  grid-template-columns:
+    minmax(220px, 1fr)
+    minmax(180px, .32fr)
+    minmax(190px, .34fr);
   gap: 9px;
   border-top: 1px solid #e8eeec;
   border-bottom: 1px solid #e8eeec;
@@ -4596,7 +4597,7 @@ button.report-day-line:hover { background: #edf8f5; }
 .state-working .live-person-avatar i { background: #28b88a; }
 .state-paused .live-person-avatar i { background: #e49b3e; }
 .state-completed .live-person-avatar i { background: #389bc6; }
-.state-attention .live-person-avatar i { background: #d9675b; }
+.state-absent .live-person-avatar i { background: #d9675b; }
 .live-person-identity { min-width: 0; display: grid; gap: 4px; }
 .live-person-identity strong { overflow: hidden; color: #263f48; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .live-person-identity small { overflow: hidden; color: #809196; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -4607,8 +4608,7 @@ button.report-day-line:hover { background: #edf8f5; }
 .live-person-status.late { color: #a65343; background: #ffebe6; }
 .live-state-tabs button.late > i { background: #e17a63; }
 .live-person-status.completed { color: #24749a; background: #e6f2f8; }
-.live-person-status.not-started { color: #6f8085; background: #edf1f1; }
-.live-person-status.attention { color: #9c4c43; background: #ffebe7; }
+.live-person-status.absent { color: #9c4c43; background: #ffebe7; }
 .live-person-last { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 1px 6px; }
 .live-person-last > svg { grid-row: 1 / 3; color: #83969a; }
 .live-person-last small, .live-person-worked small { color: #8a9a9e; font-size: 11px; }
@@ -7694,5 +7694,165 @@ button.report-day-line:hover { background: #edf8f5; }
   }
   .manager-mobile-clocking .agent-activity-link {
     border-color: #d9e8ef;
+  }
+}
+
+/* One-day navigation for the live attendance workspace. */
+.live-day-toolbar {
+  min-height: 58px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 8;
+  border: 1px solid #dce6e3;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 10px 30px rgba(8, 10, 11, .04);
+}
+.live-day-navigation {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: #edf3f1;
+}
+.live-day-navigation > button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: #294750;
+  background: #fff;
+}
+.live-day-navigation > button:disabled {
+  color: #a9b5b8;
+  background: transparent;
+  cursor: not-allowed;
+}
+.live-day-navigation > label {
+  min-width: 190px;
+  min-height: 36px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #087f7b;
+}
+.live-day-navigation input {
+  width: 145px;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #203c45;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+}
+.live-day-today {
+  min-height: 42px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cfe3df;
+  border-radius: 11px;
+  color: #087f7b;
+  background: #eef8f5;
+  font-size: 9px;
+  font-weight: 900;
+}
+.live-day-toolbar .live-day-export {
+  width: auto;
+  margin-left: auto;
+  order: initial;
+}
+.admin-live-state.historical {
+  color: #476a75;
+}
+.admin-live-state.historical > i {
+  background: #42a2c8;
+  box-shadow: 0 0 0 4px rgba(66, 162, 200, .1);
+}
+
+@media (max-width: 720px) {
+  .live-day-toolbar {
+    width: 100%;
+    min-width: 0;
+    padding: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+    border-radius: 15px;
+  }
+  .live-day-navigation {
+    width: 100%;
+    min-width: 0;
+  }
+  .live-day-navigation > label {
+    min-width: 0;
+    flex: 1;
+    justify-content: center;
+  }
+  .live-day-navigation input {
+    width: min(128px, 100%);
+    font-size: 10px;
+  }
+  .live-day-today {
+    grid-column: 1 / -1;
+    justify-content: center;
+    order: 3;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu {
+    width: auto;
+    margin: 0;
+    order: initial;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu > summary {
+    width: auto;
+    min-height: 42px;
+    padding-inline: 10px;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu > div {
+    width: min(290px, calc(100vw - 32px));
+    right: 0;
+    left: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .live-day-navigation > button {
+    width: 33px;
+  }
+  .live-day-navigation > label {
+    padding-inline: 5px;
+    gap: 5px;
+  }
+  .live-day-navigation > label > svg {
+    display: none;
+  }
+  .live-day-navigation input {
+    width: 122px;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu > summary {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    gap: 20px;
+    white-space: nowrap;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu > summary svg {
+    flex: 0 0 auto;
+  }
+  .organisation-reporting-workspace .live-day-toolbar .report-export-menu > summary svg:last-child {
+    display: none;
   }
 }

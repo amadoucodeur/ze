@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowDownUp,
   Building2,
   CalendarDays,
   CalendarX2,
@@ -30,11 +31,12 @@ import {
 } from "lucide-react";
 import { AdminMissingEventPanel } from "@/components/clocking/admin-missing-event-panel";
 import { createClient } from "@/lib/supabase/client";
+import { LiveDayToolbar } from "./live-day-toolbar";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
 import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
 import { dateKey, defaultPeriodDates, periodLabel, zonedDateTime, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
 import { scheduleForDay } from "@/lib/work-policy";
-import { currentWorkPolicyMessage, evaluateWorkday, weekdayForDate } from "@/lib/work-policy-evaluation";
+import { evaluateWorkday, weekdayForDate } from "@/lib/work-policy-evaluation";
 import {
   resolveReportWorkPolicy,
   type ReportTeamMember,
@@ -46,8 +48,9 @@ import {
 type EventType = "start" | "break" | "resume" | "end";
 type EventStatus = "pending" | "accepted" | "rejected" | "cancelled";
 type LiveStatus = "connecting" | "live" | "unavailable";
-type RowStatus = "working" | "paused" | "completed" | "not-started" | "attention";
+type RowStatus = "working" | "paused" | "completed" | "absent";
 type StatusFilter = "all" | RowStatus | "late";
+type ArrivalOrder = "oldest" | "newest";
 
 type ReportEvent = {
   id: string;
@@ -95,8 +98,7 @@ const statusLabels: Record<RowStatus, string> = {
   working: "En service",
   paused: "En pause",
   completed: "Terminé",
-  "not-started": "Pas commencé",
-  attention: "À vérifier",
+  absent: "Absent",
 };
 const columnOrder: ReportColumn[] = [
   "collaborator",
@@ -135,6 +137,12 @@ function durationLabel(minutes: number) {
 function activeEvents(events: ReportEvent[]) {
   return [...events]
     .filter((event) => event.event_status === "accepted" || event.event_status === "pending")
+    .sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at));
+}
+
+function acceptedEvents(events: ReportEvent[]) {
+  return [...events]
+    .filter((event) => event.event_status === "accepted")
     .sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at));
 }
 
@@ -231,11 +239,8 @@ function timeLabel(event: ReportEvent | undefined, timeZone: string) {
 }
 
 function rowStatus(events: ReportEvent[]): RowStatus {
-  if (events.some((event) => event.event_status === "pending" || event.event_status === "rejected")) {
-    return "attention";
-  }
-  const last = activeEvents(events).at(-1);
-  if (!last) return "not-started";
+  const last = events.at(-1);
+  if (!last) return "absent";
   if (last.type === "break") return "paused";
   if (last.type === "end") return "completed";
   return "working";
@@ -283,6 +288,8 @@ export function OrganisationReports({
   const [query, setQuery] = useState("");
   const [service, setService] = useState("all");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [arrivalOrder, setArrivalOrder] =
+    useState<ArrivalOrder>("oldest");
   const [period, setPeriod] = useState<ReportPeriod>(initialPeriod);
   const [start, setStart] = useState(initialDates.start);
   const [end, setEnd] = useState(initialDates.end);
@@ -374,22 +381,46 @@ export function OrganisationReports({
             .select("team_id, profile_id, is_active"),
         ]);
       if (!active) return;
-      if (
-        policiesResult.error ||
-        versionsResult.error ||
-        assignmentsResult.error ||
-        membersResult.error
-      ) {
+      if (policiesResult.error || versionsResult.error) {
         setWorkPolicies([]);
         setWorkPolicyVersions([]);
         setWorkPolicyAssignments([]);
         setWorkTeamMembers([]);
         return;
       }
+
+      let resolvedAssignments: ReportWorkPolicyAssignment[] = [];
+      if (!assignmentsResult.error) {
+        resolvedAssignments =
+          (assignmentsResult.data ?? []) as ReportWorkPolicyAssignment[];
+      } else {
+        const legacyAssignments = await supabase
+          .schema("zecontrol")
+          .from("work_policy_assignments")
+          .select(
+            "policy_id, target_type, service_name, profile_id, valid_from, valid_until",
+          )
+          .eq("organisation_id", organisationId);
+        if (!active) return;
+        if (!legacyAssignments.error) {
+          resolvedAssignments = (legacyAssignments.data ?? []).map(
+            (assignment) => ({
+              ...assignment,
+              team_id: null,
+              priority: 0,
+            }),
+          ) as ReportWorkPolicyAssignment[];
+        }
+      }
+
       setWorkPolicies((policiesResult.data ?? []) as ReportWorkPolicy[]);
       setWorkPolicyVersions((versionsResult.data ?? []) as ReportWorkPolicyVersion[]);
-      setWorkPolicyAssignments((assignmentsResult.data ?? []) as ReportWorkPolicyAssignment[]);
-      setWorkTeamMembers((membersResult.data ?? []) as ReportTeamMember[]);
+      setWorkPolicyAssignments(resolvedAssignments);
+      setWorkTeamMembers(
+        membersResult.error
+          ? []
+          : ((membersResult.data ?? []) as ReportTeamMember[]),
+      );
     }
 
     void Promise.all([loadProfiles(), loadEvents(), loadWorkPolicies()]);
@@ -507,6 +538,18 @@ export function OrganisationReports({
       groups.set(key, current);
     }
 
+    if (view === "live") {
+      const selectedDay = start || dateKey(new Date(clockTick), timeZone);
+      for (const profile of profiles) {
+        const activationDay = profile.activated_at
+          ? dateKey(new Date(profile.activated_at), timeZone)
+          : null;
+        if (activationDay && selectedDay < activationDay) continue;
+        const key = `${profile.id}:${selectedDay}`;
+        if (!groups.has(key)) groups.set(key, []);
+      }
+    }
+
     if (view === "reports" && start && end) {
       const today = dateKey(new Date(clockTick), timeZone);
       const lastRelevantDay = end < today ? end : today;
@@ -536,26 +579,19 @@ export function OrganisationReports({
 
     return result
       .map((row) => {
-        const valid = activeEvents(row.events);
+        const metricEvents =
+          view === "live" ? acceptedEvents(row.events) : activeEvents(row.events);
+        const valid = metricEvents;
         const definition = resolveDefinition(row.profile, row.day);
         const evaluation = definition
           ? evaluateWorkday({
               definition,
-              events: row.events,
+              events: metricEvents,
               date: row.day,
               now: new Date(clockTick),
               timeZone,
             })
           : null;
-        const policyMessage =
-          definition && row.day === dateKey(new Date(clockTick), timeZone)
-            ? currentWorkPolicyMessage({
-                definition,
-                events: row.events,
-                now: new Date(clockTick),
-                timeZone,
-              })
-            : null;
         const first = valid.find((event) => event.type === "start");
         const firstBreak = valid.find((event) => event.type === "break");
         const firstResume = valid.find((event) => event.type === "resume");
@@ -567,17 +603,16 @@ export function OrganisationReports({
           firstBreak,
           firstResume,
           end: endEvent,
-          worked: workedMinutes(row.events, clockTick, timeZone),
-          pause: pauseMinutes(row.events, clockTick, timeZone),
-          breaks: breakCount(row.events),
+          worked: workedMinutes(metricEvents, clockTick, timeZone),
+          pause: pauseMinutes(metricEvents, clockTick, timeZone),
+          breaks: breakCount(metricEvents),
           isPotentialAbsence:
             row.day < dateKey(new Date(clockTick), timeZone) &&
             Boolean((evaluation?.expectedMinutes ?? 0) > 0) &&
             !first,
-          status: rowStatus(row.events),
+          status: rowStatus(valid),
           definition,
           evaluation,
-          policyMessage,
         };
       })
       .sort((a, b) => b.day.localeCompare(a.day) || a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
@@ -593,13 +628,24 @@ export function OrganisationReports({
       (
         status === "all" ||
         (status === "late"
-          ? Boolean((row.evaluation?.lateMinutes ?? 0) > 0 || row.policyMessage?.tone === "attention")
+          ? Boolean(row.first && (row.evaluation?.lateMinutes ?? 0) > 0)
           : row.status === status)
       );
   });
 
   const rangeLabel = periodLabel(period, start, end);
   const isSingleDay = Boolean(start && start === end);
+  const today = dateKey(new Date(clockTick), timeZone);
+  const liveDay = start || today;
+  const isLiveToday = liveDay === today;
+  const liveDayLabel = isLiveToday
+    ? "Aujourd’hui"
+    : new Intl.DateTimeFormat("fr-FR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${liveDay}T12:00:00`));
   const collaboratorSummaries = useMemo(() => {
     const daysByProfile = new Map<string, typeof rows>();
     for (const row of filteredDayRows) {
@@ -653,17 +699,39 @@ export function OrganisationReports({
   const displayedSummaries = collaboratorSummaries.slice((reportCurrentPage - 1) * PAGE_SIZE, reportCurrentPage * PAGE_SIZE);
   const liveTotalPages = Math.max(1, Math.ceil(filteredDayRows.length / PAGE_SIZE));
   const liveCurrentPage = Math.min(page, liveTotalPages);
-  const displayedDayRows = filteredDayRows.slice((liveCurrentPage - 1) * PAGE_SIZE, liveCurrentPage * PAGE_SIZE);
+  const orderedDayRows = [...filteredDayRows].sort((left, right) => {
+    const leftArrival = left.first
+      ? new Date(left.first.pointed_at).getTime()
+      : null;
+    const rightArrival = right.first
+      ? new Date(right.first.pointed_at).getTime()
+      : null;
+    if (leftArrival === null && rightArrival !== null) return 1;
+    if (leftArrival !== null && rightArrival === null) return -1;
+    if (leftArrival !== null && rightArrival !== null) {
+      const difference =
+        arrivalOrder === "oldest"
+          ? leftArrival - rightArrival
+          : rightArrival - leftArrival;
+      if (difference) return difference;
+    }
+    return left.profile.fullname.localeCompare(
+      right.profile.fullname,
+      "fr",
+    );
+  });
+  const displayedDayRows = orderedDayRows.slice((liveCurrentPage - 1) * PAGE_SIZE, liveCurrentPage * PAGE_SIZE);
   const selectedRow = selectedRowKey ? rows.find((row) => row.key === selectedRowKey) ?? null : null;
   const selectedProfile = selectedProfileId
     ? profiles.find((profile) => profile.id === selectedProfileId) ?? null
     : null;
   const completedDays = rows.filter((row) => row.status === "completed").length;
-  const attentionCount = rows.filter((row) => row.status === "attention").length;
   const workingCount = rows.filter((row) => row.status === "working").length;
   const pausedCount = rows.filter((row) => row.status === "paused").length;
-  const notStartedCount = rows.filter((row) => row.status === "not-started").length;
-  const lateCount = rows.filter((row) => (row.evaluation?.lateMinutes ?? 0) > 0 || row.policyMessage?.tone === "attention").length;
+  const absentCount = rows.filter((row) => row.status === "absent").length;
+  const lateCount = rows.filter(
+    (row) => row.first && (row.evaluation?.lateMinutes ?? 0) > 0,
+  ).length;
   const aggregateDays = filteredDayRows;
   const aggregateWorkedDays = aggregateDays.filter((day) => Boolean(day.first));
   const aggregateLateDays = aggregateDays.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
@@ -732,10 +800,28 @@ export function OrganisationReports({
 
   async function handleExport(format: "pdf" | "excel" | "csv", scope: "summary" | "detail" = "summary") {
     const filename = `zecontrol-${scope === "summary" ? "resume" : "detail"}-${start || "tout"}-${end || "tout"}`;
-    const summaryHeaders = visibleColumns.map(summaryColumnLabel);
-    const summaryRows = collaboratorSummaries.map((summary) => visibleColumns.map((column) => summaryCellValue(summary, column)));
+    const reportSummaryHeaders = visibleColumns.map(summaryColumnLabel);
+    const reportSummaryRows = collaboratorSummaries.map((summary) => visibleColumns.map((column) => summaryCellValue(summary, column)));
+    const liveSummaryHeaders = ["Collaborateur", "Identifiant", "Poste", "Service", "État", "Arrivée", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Temps travaillé", "Retard"];
+    const liveSummaryRows = orderedDayRows.map((row) => [
+      row.profile.fullname,
+      row.profile.identifiant,
+      row.profile.poste || "—",
+      row.profile.service || "—",
+      (row.evaluation?.lateMinutes ?? 0) > 0 ? "En retard" : statusLabels[row.status],
+      dayCellValue(row, "start"),
+      dayCellValue(row, "firstBreak"),
+      dayCellValue(row, "firstResume"),
+      dayCellValue(row, "end"),
+      dayCellValue(row, "breakCount"),
+      dayCellValue(row, "pauseDuration"),
+      durationLabel(row.worked),
+      dayCellValue(row, "late"),
+    ]);
+    const summaryHeaders = view === "live" ? liveSummaryHeaders : reportSummaryHeaders;
+    const summaryRows = view === "live" ? liveSummaryRows : reportSummaryRows;
     const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard", "Solde", "Chronologie"];
-    const detailRows = filteredDayRows.map((row) => [
+    const detailRows = orderedDayRows.map((row) => [
       row.profile.fullname,
       new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(`${row.day}T12:00:00`)),
       dayCellValue(row, "start"),
@@ -746,7 +832,7 @@ export function OrganisationReports({
       dayCellValue(row, "pauseDuration"),
       dayCellValue(row, "late"),
       dayCellValue(row, "balance"),
-      activeEvents(row.events).map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
+      row.valid.map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
     ]);
     const headers = scope === "summary" ? summaryHeaders : detailHeaders;
     const exportRows = scope === "summary" ? summaryRows : detailRows;
@@ -772,11 +858,28 @@ export function OrganisationReports({
           exportScopes
         />
       </div>}
+      {view === "live" && (
+        <LiveDayToolbar
+          day={liveDay}
+          today={today}
+          onDayChange={(value) => {
+            setPeriod("day");
+            setStart(value);
+            setEnd(value);
+            setPage(1);
+            setSelectedRowKey(null);
+            setRefreshing(true);
+          }}
+          onExport={handleExport}
+        />
+      )}
       <div className="admin-report-freshness">
-        <span>{view === "live" ? "Aujourd’hui" : rangeLabel}</span>
-        {view === "live" && <span className={`admin-live-state ${liveStatus}`}><i /> {liveStatus === "live" ? "Temps réel" : liveStatus === "connecting" ? "Connexion au direct" : "Direct indisponible"}</span>}
+        <span>{view === "live" ? liveDayLabel : rangeLabel}</span>
+        {view === "live" && (isLiveToday
+          ? <span className={`admin-live-state ${liveStatus}`}><i /> {liveStatus === "live" ? "Temps réel" : liveStatus === "connecting" ? "Connexion au direct" : "Direct indisponible"}</span>
+          : <span className="admin-live-state historical"><i /> Journée archivée</span>)}
         {lastUpdatedAt && <small>Mis à jour à {new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone }).format(lastUpdatedAt)} · {timeZone}</small>}
-        <button className="admin-report-add-missing" type="button" onClick={() => setAdminMissingIntent({ profileId: selectedProfile?.id })}><Plus size={15} /> Ajouter un oubli</button>
+        <button className="admin-report-add-missing" type="button" onClick={() => setAdminMissingIntent({ profileId: selectedProfile?.id, requestedAt: zonedDateTime(`${liveDay}T09:00`, timeZone).toISOString() })}><Plus size={15} /> Ajouter un oubli</button>
         <button type="button" onClick={refresh} disabled={refreshing} aria-label="Actualiser"><RefreshCw className={refreshing ? "spin" : ""} size={14} /> Actualiser</button>
       </div>
 
@@ -784,10 +887,9 @@ export function OrganisationReports({
         <section className="report-kpis live-report-kpis">
           <article><span><UserCheck size={20} /></span><div><small>En service</small><strong>{workingCount}</strong></div></article>
           <article><span><Coffee size={20} /></span><div><small>En pause</small><strong>{pausedCount}</strong></div></article>
-          <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
-          <article><span><Clock3 size={20} /></span><div><small>Pas commencé</small><strong>{notStartedCount}</strong></div></article>
           <article className={lateCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>En retard</small><strong>{lateCount}</strong></div></article>
-          <article className={attentionCount ? "attention" : ""}><span><AlertTriangle size={20} /></span><div><small>À vérifier</small><strong>{attentionCount}</strong></div></article>
+          <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
+          <article className={absentCount ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absents</small><strong>{absentCount}</strong></div></article>
         </section>
       ) : (
         <section className="report-summary-grid" aria-label="Synthèse des données filtrées">
@@ -809,25 +911,29 @@ export function OrganisationReports({
 
       {view === "live" && <section className="live-team-board">
         <header className="live-team-heading">
-          <div><span>Équipe aujourd’hui</span><h2>Qui est là maintenant&nbsp;?</h2><p>Sélectionnez une personne pour voir sa journée en cours.</p></div>
+          <div>
+            <span>{isLiveToday ? "Équipe aujourd’hui" : `Équipe · ${liveDayLabel}`}</span>
+            <h2>{isLiveToday ? "Qui est là maintenant\u00a0?" : "Présences de cette journée"}</h2>
+            <p>{isLiveToday ? "Sélectionnez une personne pour voir sa journée en cours." : "Sélectionnez une personne pour voir la chronologie de sa journée."}</p>
+          </div>
           <div className="live-team-count"><strong>{filteredDayRows.length}</strong><span>personne{filteredDayRows.length > 1 ? "s" : ""}</span></div>
         </header>
 
         <div className="live-state-tabs" aria-label="Filtrer par état">
           {([
-            ["all", "Toute l’équipe", profiles.length],
+            ["all", "Toute l’équipe", rows.length],
             ["working", "En service", workingCount],
             ["paused", "En pause", pausedCount],
-            ["completed", "Terminé", completedDays],
-            ["not-started", "Pas commencé", notStartedCount],
             ["late", "En retard", lateCount],
-            ["attention", "À vérifier", attentionCount],
+            ["completed", "Terminé", completedDays],
+            ["absent", "Absents", absentCount],
           ] as const).map(([value, label, count]) => <button className={`${value} ${status === value ? "active" : ""}`} type="button" aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }} key={value}><i /><span>{label}</span><strong>{count}</strong></button>)}
         </div>
 
         <div className="live-team-filters">
           <label><Search size={18} /><span className="sr-only">Rechercher un collaborateur</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Rechercher une personne" /></label>
           <label><Building2 size={17} /><span className="sr-only">Filtrer par service</span><select value={service} onChange={(event) => { setService(event.target.value); setPage(1); }}><option value="all">Tous les services</option>{services.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+          <label><ArrowDownUp size={17} /><span className="sr-only">Trier par heure d’arrivée</span><select value={arrivalOrder} onChange={(event) => { setArrivalOrder(event.target.value as ArrivalOrder); setPage(1); }}><option value="oldest">Premières arrivées</option><option value="newest">Dernières arrivées</option></select></label>
         </div>
 
         {displayedDayRows.length === 0 ? <div className="live-team-empty"><UsersRound size={27} /><strong>Aucune personne dans cette vue</strong><p>Modifiez le filtre ou la recherche pour retrouver un collaborateur.</p><button type="button" onClick={() => { setStatus("all"); setService("all"); setQuery(""); }}>Effacer les filtres</button></div> : <div className="live-team-list">{displayedDayRows.map((row) => {
@@ -860,7 +966,7 @@ export function OrganisationReports({
         <div className="admin-report-filters">
           <label className="admin-search-filter"><Search size={16} /><span className="sr-only">Rechercher</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Nom, identifiant, poste ou service" /></label>
           <label><Building2 size={16} /><span className="sr-only">Service</span><select value={service} onChange={(event) => { setService(event.target.value); setPage(1); }}><option value="all">Tous les services</option>{services.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-          <label><Filter size={16} /><span className="sr-only">État</span><select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="all">Tous les états</option><option value="working">En service</option><option value="paused">En pause</option><option value="completed">Terminé</option><option value="not-started">Pas commencé</option><option value="late">En retard</option><option value="attention">À vérifier</option></select></label>
+          <label><Filter size={16} /><span className="sr-only">État</span><select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}><option value="all">Tous les états</option><option value="working">En service</option><option value="paused">En pause</option><option value="completed">Terminé</option><option value="absent">Absent</option><option value="late">En retard</option></select></label>
         </div>
 
         {displayedSummaries.length === 0 ? (
@@ -908,7 +1014,7 @@ export function OrganisationReports({
                 return <article className={`detail-event event-${event.type} status-${event.event_status}`} key={event.id}><span><Icon size={17} /></span><div><small>{typeLabels[event.type]}</small><strong>{timeLabel(event, timeZone)}</strong></div><em>{event.event_status === "accepted" ? "Validé" : event.event_status === "pending" ? "À vérifier" : event.event_status === "rejected" ? "Refusé" : "Annulé"}</em></article>;
               }) : <div className="admin-detail-empty"><Clock3 size={22} /><strong>Aucun pointage</strong><p>Ce collaborateur n’a pas encore commencé cette journée.</p></div>}
             </div>
-            <footer className="admin-detail-actions"><button type="button" onClick={() => { setAdminMissingIntent({ profileId: selectedRow.profile.id, requestedAt: zonedDateTime(`${selectedRow.day}T09:00`, timeZone).toISOString() }); setSelectedRowKey(null); }}><Plus size={15} /> Ajouter un pointage</button><Link href={`/dashboard/equipe/${selectedRow.profile.id}`}><Settings2 size={15} /> Gérer le profil</Link>{selectedRow.status === "attention" && <Link href="/dashboard/demandes"><AlertTriangle size={15} /> Voir les demandes</Link>}</footer>
+            <footer className="admin-detail-actions"><button type="button" onClick={() => { setAdminMissingIntent({ profileId: selectedRow.profile.id, requestedAt: zonedDateTime(`${selectedRow.day}T09:00`, timeZone).toISOString() }); setSelectedRowKey(null); }}><Plus size={15} /> Ajouter un pointage</button><Link href={`/dashboard/equipe/${selectedRow.profile.id}`}><Settings2 size={15} /> Gérer le profil</Link></footer>
           </aside>
         </div>
       )}
