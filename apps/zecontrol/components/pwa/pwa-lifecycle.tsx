@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, BellRing, Check, Download, RefreshCw, RotateCcw, Share, Smartphone, WifiOff, X } from "lucide-react";
-import { currentWorkPolicyMessage, type EvaluatedClockingEvent } from "@/lib/work-policy-evaluation";
+import {
+  currentWorkPolicyReminder,
+  type EvaluatedClockingEvent,
+} from "@/lib/work-policy-evaluation";
 import { isWorkPolicyDefinition } from "@/lib/work-policy";
 import { dateKey, zonedDayBoundary } from "@/lib/reports/period";
 import { createClient } from "@/lib/supabase/client";
@@ -288,12 +291,28 @@ export function PwaLifecycle() {
         .maybeSingle();
       if (!profile?.organisation_id || !active) return;
 
-      const { data: config } = await supabase
-        .schema("zecontrol")
-        .from("orga_configs")
-        .select("timezone")
-        .eq("id", profile.organisation_id)
-        .maybeSingle();
+      const [configResult, productProfileResult] = await Promise.all([
+        supabase
+          .schema("zecontrol")
+          .from("orga_configs")
+          .select("timezone")
+          .eq("id", profile.organisation_id)
+          .maybeSingle(),
+        supabase
+          .schema("zecontrol")
+          .from("profiles_configs")
+          .select("role, is_active")
+          .eq("id", profileId)
+          .maybeSingle(),
+      ]);
+      if (
+        productProfileResult.data?.role === "owner" ||
+        productProfileResult.data?.is_active === false ||
+        !active
+      ) {
+        return;
+      }
+      const config = configResult.data;
       const timeZone = config?.timezone || "Africa/Abidjan";
       const now = new Date();
       const today = dateKey(now, timeZone);
@@ -325,8 +344,8 @@ export function PwaLifecycle() {
 
       const resolved = policyResult.data as { definition?: unknown } | null;
       const events = (eventsResult.data ?? []) as EvaluatedClockingEvent[];
-      const message = isWorkPolicyDefinition(resolved?.definition)
-        ? currentWorkPolicyMessage({
+      const policyReminder = isWorkPolicyDefinition(resolved?.definition)
+        ? currentWorkPolicyReminder({
             definition: {
               ...resolved.definition,
               daySchedules: resolved.definition.daySchedules ?? {},
@@ -334,17 +353,17 @@ export function PwaLifecycle() {
             events,
             now,
             timeZone,
-          }) ?? fallbackClockingReminder(events, now)
-        : fallbackClockingReminder(events, now);
-      if (
-        !message ||
-        message.tone === "success" ||
-        /aucun horaire prévu/i.test(message.title)
-      ) {
-        return;
-      }
+          })
+        : null;
+      const message =
+        policyReminder ??
+        (isWorkPolicyDefinition(resolved?.definition)
+          ? null
+          : fallbackClockingReminder(events, now));
+      if (!message) return;
 
-      const category = reminderCategory(message, events);
+      const category =
+        policyReminder?.key ?? reminderCategory(message, events);
       const sentKey = `${REMINDER_SENT_PREFIX}${today}:${category}`;
       try {
         if (window.localStorage.getItem(sentKey)) return;
@@ -432,7 +451,7 @@ export function PwaLifecycle() {
         const registration = await navigator.serviceWorker.getRegistration();
         if (registration) {
           await registration.showNotification("Rappels activés", {
-            body: "ZeControl vous aidera à ne plus oublier une arrivée, une reprise ou un départ.",
+            body: "ZeControl vous rappellera l’arrivée, la pause, la reprise et le départ au bon moment.",
             icon: "/pwa/icon-192.png",
             badge: "/pwa/icon-192.png",
             tag: "zecontrol-reminders-enabled",
@@ -532,7 +551,7 @@ export function PwaLifecycle() {
             <span className="pwa-install-icon"><Bell size={18} /></span>
             <span>
               <strong>Ne plus oublier de pointer</strong>
-              <small>Recevez un rappel utile pour l’arrivée, la reprise ou le départ.</small>
+              <small>Recevez les rappels d’arrivée, de pause, de reprise et de départ au bon moment.</small>
             </span>
             <button className="pwa-install-action" type="button" onClick={() => void enableReminders()}>Activer</button>
             <button className="pwa-install-dismiss" type="button" aria-label="Plus tard" onClick={dismissReminders}><X size={16} /></button>

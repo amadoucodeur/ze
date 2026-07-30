@@ -27,7 +27,11 @@ import { ZeControlLogo } from "@ze/ui-foundations/brands";
 import { createClient } from "@/lib/supabase/client";
 import { dateKey } from "@/lib/reports/period";
 import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
-import { currentWorkPolicyMessage } from "@/lib/work-policy-evaluation";
+import {
+  currentBreakProgress,
+  currentWorkPolicyMessage,
+  type BreakProgress,
+} from "@/lib/work-policy-evaluation";
 import { EventRequestPanel, type EventRequestIntent } from "./event-request-panel";
 
 type EventType = "start" | "break" | "resume" | "end";
@@ -83,6 +87,47 @@ function durationLabel(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return `${hours}h ${String(remainder).padStart(2, "0")}`;
+}
+
+function compactDurationLabel(minutes: number) {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} h ${remainder} min` : `${hours} h`;
+}
+
+function BreakCountdown({ progress }: { progress: BreakProgress }) {
+  const overdue = progress.overdueMinutes > 0;
+  return (
+    <div className={`agent-break-countdown ${overdue ? "is-overdue" : ""}`}>
+      <span className="agent-break-countdown-icon"><Coffee size={18} /></span>
+      <div className="agent-break-countdown-copy">
+        <small>Pause autorisée</small>
+        <strong>{compactDurationLabel(progress.allowedMinutes)}</strong>
+      </div>
+      <div className="agent-break-countdown-value">
+        <small>{compactDurationLabel(progress.elapsedMinutes)} écoulées</small>
+        <strong>
+          {overdue
+            ? `Dépassée de ${compactDurationLabel(progress.overdueMinutes)}`
+            : `${compactDurationLabel(progress.remainingMinutes)} restantes`}
+        </strong>
+      </div>
+      <div
+        className="agent-break-countdown-track"
+        role="progressbar"
+        aria-label="Progression de la pause"
+        aria-valuemin={0}
+        aria-valuemax={progress.allowedMinutes}
+        aria-valuenow={Math.min(
+          progress.elapsedMinutes,
+          progress.allowedMinutes,
+        )}
+      >
+        <i style={{ width: `${progress.progressPercent}%` }} />
+      </div>
+    </div>
+  );
 }
 
 function nextEvent(lastEvent: ClockingEvent | undefined): EventType {
@@ -238,6 +283,14 @@ export function PersonalClockingWorkspace({
   const todayMinutes = minutesForEvents(todayEvents, now, timeZone);
   const workPolicyMessage = workPolicyDefinition
     ? currentWorkPolicyMessage({
+        definition: workPolicyDefinition,
+        events: todayEvents,
+        now,
+        timeZone,
+      })
+    : null;
+  const breakProgress = workPolicyDefinition
+    ? currentBreakProgress({
         definition: workPolicyDefinition,
         events: todayEvents,
         now,
@@ -457,7 +510,8 @@ export function PersonalClockingWorkspace({
 
         <div className={`agent-command-card state-${agentState} action-${currentAction}`}>
           <div className="agent-command-glow" aria-hidden="true"><i /><i /><i /></div>
-          {workPolicyMessage && <div className={`agent-policy-message ${workPolicyMessage.tone}`} role="status"><span>{workPolicyMessage.tone === "success" ? <Check size={17} /> : <BellRing size={17} />}</span><div><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></div></div>}
+          {workPolicyMessage && !breakProgress && <div className={`agent-policy-message ${workPolicyMessage.tone}`} role="status"><span>{workPolicyMessage.tone === "success" ? <Check size={17} /> : <BellRing size={17} />}</span><div><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></div></div>}
+          {breakProgress && <BreakCountdown progress={breakProgress} />}
           <div className="agent-mobile-clock-face">
             <div className="agent-mobile-brand"><ZeControlLogo className="agent-mobile-logo" /></div>
             <span>{new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone }).format(now)}</span>
@@ -540,7 +594,8 @@ export function PersonalClockingWorkspace({
           </button>
           {(isWorking || isPaused) && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
           <div className="clocking-assurance"><span className={locationReady ? "ready" : "missing"}><LocateFixed size={16} /> {locationReady ? "Localisation prête" : "Zone non configurée"}</span><span><Clock3 size={16} /> Heure fiable</span></div>
-          {workPolicyMessage && <div className={`manager-policy-message ${workPolicyMessage.tone}`} role="status"><BellRing size={16} /><span><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></span></div>}
+          {workPolicyMessage && !breakProgress && <div className={`manager-policy-message ${workPolicyMessage.tone}`} role="status"><BellRing size={16} /><span><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></span></div>}
+          {breakProgress && <BreakCountdown progress={breakProgress} />}
           {canCancelLastEvent && <button className="clocking-undo-action" type="button" onClick={() => void cancelLastEvent()} disabled={cancelling || Boolean(submitting)}><Undo2 size={16} /> {cancelling ? "Annulation..." : `Annuler (${cancellationSeconds}s)`}</button>}
           {feedback && <div className={`clocking-feedback ${feedback.type}`} role={feedback.type === "error" ? "alert" : "status"}>{feedback.type === "success" ? <Check size={18} /> : <AlertTriangle size={18} />}<span>{feedback.message}</span></div>}
         </div>

@@ -5,24 +5,31 @@ import {
   Check,
   ChevronDown,
   Clock3,
+  Gauge,
   LoaderCircle,
   Pencil,
   Plus,
   Save,
+  TimerReset,
   UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  areWorkReminderSettingsValid,
   defaultWorkPolicies,
   isWorkPolicyDefinition,
   policySummary,
+  scheduleForDay,
+  scheduledMinutes,
   weekdayOptions,
+  workReminderSettings,
   type WorkPolicyDefinition,
   type WorkPolicyMode,
 } from "@/lib/work-policy";
 import { DailyScheduleOverrides } from "./daily-schedule-overrides";
+import { WorkReminderSettings } from "./work-reminder-settings";
 
 type ProfileOption = {
   id: string;
@@ -69,10 +76,12 @@ function localDate(timeZone: string) {
 }
 
 function copyDefault(mode: WorkPolicyMode) {
+  const source = defaultWorkPolicies[mode];
   return {
-    ...defaultWorkPolicies[mode],
-    days: [...defaultWorkPolicies[mode].days],
+    ...source,
+    days: [...source.days],
     daySchedules: {},
+    reminders: { ...workReminderSettings(source) },
   };
 }
 
@@ -181,6 +190,7 @@ export function ScopedWorkRules({
     setDefinition(isWorkPolicyDefinition(item.version?.definition) ? {
       ...item.version.definition,
       daySchedules: item.version.definition.daySchedules ?? {},
+      reminders: { ...workReminderSettings(item.version.definition) },
     } : copyDefault("fixed"));
     setEffectiveFrom(today);
     setFeedback(null);
@@ -273,12 +283,40 @@ export function ScopedWorkRules({
       (
         definition.startTime >= definition.endTime ||
         definition.days.some((day) => {
-          const schedule = definition.daySchedules?.[String(day)];
-          return schedule ? schedule.startTime >= schedule.endTime : false;
+          const schedule = scheduleForDay(definition, day);
+          return (
+            !schedule ||
+            schedule.startTime >= schedule.endTime ||
+            schedule.breakMinutes < 0 ||
+            schedule.breakMinutes > 720 ||
+            scheduledMinutes(schedule) <= 0
+          );
         })
       )
     ) {
-      setFeedback({ type: "error", message: "L’heure de fin doit être après l’heure de début." });
+      setFeedback({ type: "error", message: "Vérifiez les heures et la durée de pause." });
+      return;
+    }
+    if (
+      !Number.isFinite(definition.breakMinutes) ||
+      definition.breakMinutes < 0 ||
+      definition.breakMinutes > 720 ||
+      !Number.isFinite(definition.toleranceMinutes) ||
+      definition.toleranceMinutes < 0 ||
+      definition.toleranceMinutes > 180 ||
+      !Number.isFinite(definition.minimumBreakAfterMinutes) ||
+      definition.minimumBreakAfterMinutes < 0 ||
+      definition.minimumBreakAfterMinutes > 1440
+    ) {
+      setFeedback({ type: "error", message: "Une durée configurée n’est pas valide." });
+      return;
+    }
+    if (
+      definition.mode === "fixed" &&
+      workReminderSettings(definition).enabled &&
+      !areWorkReminderSettingsValid(definition)
+    ) {
+      setFeedback({ type: "error", message: "Vérifiez les seuils configurés pour les rappels." });
       return;
     }
 
@@ -452,8 +490,14 @@ export function ScopedWorkRules({
               {definition.mode !== "attendance" && <>
                 <div className="work-policy-days">{weekdayOptions.map((day) => <button type="button" className={definition.days.includes(day.value) ? "is-selected" : ""} onClick={() => toggleDay(day.value)} key={day.value}><span>{day.short}</span><small>{day.label.slice(0, 3)}</small></button>)}</div>
                 {definition.mode === "fixed" ? <>
-                  <div className="work-policy-fields"><label><span>Début</span><div><Clock3 size={16} /><input type="time" value={definition.startTime} onChange={(event) => setDefinition({ ...definition, startTime: event.target.value })} /></div></label><label><span>Fin</span><div><Clock3 size={16} /><input type="time" value={definition.endTime} onChange={(event) => setDefinition({ ...definition, endTime: event.target.value })} /></div></label></div>
+                  <div className="work-policy-fields">
+                    <label><span>Début</span><div><Clock3 size={16} /><input type="time" value={definition.startTime} onChange={(event) => setDefinition({ ...definition, startTime: event.target.value })} /></div></label>
+                    <label><span>Fin</span><div><Clock3 size={16} /><input type="time" value={definition.endTime} onChange={(event) => setDefinition({ ...definition, endTime: event.target.value })} /></div></label>
+                    <label><span>Pause prévue</span><div><TimerReset size={16} /><input type="number" min={0} max={720} step={5} value={definition.breakMinutes} onChange={(event) => setDefinition({ ...definition, breakMinutes: Number(event.target.value) })} /><em>min</em></div></label>
+                    <label><span>Tolérance d’arrivée</span><div><Gauge size={16} /><input type="number" min={0} max={180} step={5} value={definition.toleranceMinutes} onChange={(event) => setDefinition({ ...definition, toleranceMinutes: Number(event.target.value) })} /><em>min</em></div></label>
+                  </div>
                   <DailyScheduleOverrides definition={definition} onChange={setDefinition} />
+                  <WorkReminderSettings compact definition={definition} onChange={setDefinition} />
                 </> : <div className="work-policy-fields"><label className="wide"><span>Temps attendu par semaine</span><div><Clock3 size={16} /><input type="number" min={1} max={168} step={0.5} value={definition.weeklyTargetMinutes / 60} onChange={(event) => setDefinition({ ...definition, weeklyTargetMinutes: Math.round(Number(event.target.value) * 60) })} /><em>heures</em></div></label></div>}
               </>}
               <label className="scoped-target-select"><span>Appliquer à partir du</span><input type="date" min={today} value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} /></label>

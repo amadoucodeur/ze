@@ -703,10 +703,16 @@ export function PersonalActivityDashboard({
     ];
     const detailHeaders = [
       ...visibleColumns.map((column) => columnLabels[column]),
+      "Retard à l’arrivée",
+      "Dépassement de pause",
+      "Retard cumulé",
       "Chronologie",
     ];
     const detailRows = days.map((day) => [
       ...visibleColumns.map((column) => cellValue(day, column)),
+      durationLabel(day.evaluation?.arrivalLateMinutes ?? 0),
+      durationLabel(day.evaluation?.breakOverrunMinutes ?? 0),
+      durationLabel(day.evaluation?.lateMinutes ?? 0),
       activeEvents(day.events)
         .map((event) => `${timeOf(event)} ${typeLabels[event.type]}`)
         .join(" · ") || "Aucun pointage",
@@ -1218,6 +1224,16 @@ export function PersonalActivityDashboard({
                       selectedDay.evaluation.differenceMinutes,
                     )}
                   </strong>
+                </span>
+                <span>
+                  <small>Retard cumulé</small>
+                  <strong>
+                    {durationLabel(selectedDay.evaluation.lateMinutes)}
+                  </strong>
+                  <em>
+                    {durationLabel(selectedDay.evaluation.arrivalLateMinutes)} arrivée ·{" "}
+                    {durationLabel(selectedDay.evaluation.breakOverrunMinutes)} pause
+                  </em>
                 </span>
               </div>
             )}

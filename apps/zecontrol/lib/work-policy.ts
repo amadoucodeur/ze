@@ -6,6 +6,28 @@ export type WorkDaySchedule = {
   breakMinutes: number;
 };
 
+export type WorkReminderSettings = {
+  enabled: boolean;
+  arrivalEnabled: boolean;
+  breakDueEnabled: boolean;
+  breakEndEnabled: boolean;
+  followUpEnabled: boolean;
+  warningPercent: number;
+  arrivalLeadMinutes: number;
+  repeatMinutes: number;
+};
+
+export const defaultWorkReminderSettings: WorkReminderSettings = {
+  enabled: true,
+  arrivalEnabled: true,
+  breakDueEnabled: true,
+  breakEndEnabled: true,
+  followUpEnabled: true,
+  warningPercent: 85,
+  arrivalLeadMinutes: 60,
+  repeatMinutes: 15,
+};
+
 export type WorkPolicyDefinition = {
   mode: WorkPolicyMode;
   days: number[];
@@ -20,6 +42,7 @@ export type WorkPolicyDefinition = {
   overtimeApprovalRequired: boolean;
   minimumRestMinutes: number;
   minimumBreakAfterMinutes: number;
+  reminders?: Partial<WorkReminderSettings>;
 };
 
 export const weekdayOptions = [
@@ -47,6 +70,7 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     overtimeApprovalRequired: true,
     minimumRestMinutes: 660,
     minimumBreakAfterMinutes: 360,
+    reminders: { ...defaultWorkReminderSettings },
   },
   flexible: {
     mode: "flexible",
@@ -62,6 +86,11 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     overtimeApprovalRequired: true,
     minimumRestMinutes: 660,
     minimumBreakAfterMinutes: 360,
+    reminders: {
+      ...defaultWorkReminderSettings,
+      enabled: false,
+      arrivalEnabled: false,
+    },
   },
   attendance: {
     mode: "attendance",
@@ -77,8 +106,41 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     overtimeApprovalRequired: false,
     minimumRestMinutes: 0,
     minimumBreakAfterMinutes: 0,
+    reminders: {
+      ...defaultWorkReminderSettings,
+      enabled: false,
+      arrivalEnabled: false,
+      breakDueEnabled: false,
+      breakEndEnabled: false,
+    },
   },
 };
+
+export function workReminderSettings(
+  definition: WorkPolicyDefinition,
+): WorkReminderSettings {
+  return {
+    ...defaultWorkReminderSettings,
+    ...definition.reminders,
+  };
+}
+
+export function areWorkReminderSettingsValid(
+  definition: WorkPolicyDefinition,
+) {
+  const settings = workReminderSettings(definition);
+  return (
+    Number.isFinite(settings.warningPercent) &&
+    settings.warningPercent >= 50 &&
+    settings.warningPercent <= 95 &&
+    Number.isFinite(settings.arrivalLeadMinutes) &&
+    settings.arrivalLeadMinutes >= 15 &&
+    settings.arrivalLeadMinutes <= 180 &&
+    Number.isFinite(settings.repeatMinutes) &&
+    settings.repeatMinutes >= 5 &&
+    settings.repeatMinutes <= 60
+  );
+}
 
 export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefinition {
   if (!value || typeof value !== "object") return false;
@@ -99,7 +161,30 @@ export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefin
     typeof candidate.overtimeEnabled === "boolean" &&
     typeof candidate.overtimeApprovalRequired === "boolean" &&
     typeof candidate.minimumRestMinutes === "number" &&
-    typeof candidate.minimumBreakAfterMinutes === "number"
+    typeof candidate.minimumBreakAfterMinutes === "number" &&
+    (
+      candidate.reminders === undefined ||
+      (
+        typeof candidate.reminders === "object" &&
+        candidate.reminders !== null &&
+        (candidate.reminders.enabled === undefined ||
+          typeof candidate.reminders.enabled === "boolean") &&
+        (candidate.reminders.arrivalEnabled === undefined ||
+          typeof candidate.reminders.arrivalEnabled === "boolean") &&
+        (candidate.reminders.breakDueEnabled === undefined ||
+          typeof candidate.reminders.breakDueEnabled === "boolean") &&
+        (candidate.reminders.breakEndEnabled === undefined ||
+          typeof candidate.reminders.breakEndEnabled === "boolean") &&
+        (candidate.reminders.followUpEnabled === undefined ||
+          typeof candidate.reminders.followUpEnabled === "boolean") &&
+        (candidate.reminders.warningPercent === undefined ||
+          typeof candidate.reminders.warningPercent === "number") &&
+        (candidate.reminders.arrivalLeadMinutes === undefined ||
+          typeof candidate.reminders.arrivalLeadMinutes === "number") &&
+        (candidate.reminders.repeatMinutes === undefined ||
+          typeof candidate.reminders.repeatMinutes === "number")
+      )
+    )
   );
 }
 

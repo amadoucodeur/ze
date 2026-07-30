@@ -1381,6 +1381,7 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
 .location-toolbar .button { flex: 0 0 auto; min-height: 44px; background: #fff; }
 .location-toolbar p { margin: 0; font-size: 13px; line-height: 1.5; }
 .location-map-preview {
+  height: 300px;
   min-height: 300px;
   margin-top: 16px;
   overflow: hidden;
@@ -1390,7 +1391,51 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   background: #e8f0ed;
 }
 .location-map-preview iframe { width: 100%; height: 300px; display: block; border: 0; filter: saturate(.72) contrast(.96); }
+.location-map-radius {
+  aspect-ratio: 1;
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: start center;
+  border: 2px solid rgba(3, 142, 132, .9);
+  border-radius: 50%;
+  background: rgba(40, 201, 187, .2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, .8),
+    inset 0 0 30px rgba(17, 167, 155, .12);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: height .25s ease;
+}
+.location-map-radius::after {
+  content: "";
+  width: 9px;
+  aspect-ratio: 1;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #087f78;
+  box-shadow: 0 2px 8px rgba(4, 53, 61, .3);
+  transform: translate(-50%, -50%);
+}
+.location-map-radius > i {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: #087f78;
+  box-shadow: 0 4px 12px rgba(4, 53, 61, .22);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
 .location-map-preview > div {
+  z-index: 2;
   min-height: 54px;
   padding: 9px 12px;
   display: flex;
@@ -3637,7 +3682,7 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   margin: 14px 18px 0;
   padding: 10px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   border: 1px solid #dce6e3;
   border-radius: 13px;
@@ -3661,6 +3706,12 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
   color: #193942;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+.personal-policy-comparison em {
+  color: #7d9095;
+  font-size: 9px;
+  font-style: normal;
+  line-height: 1.35;
 }
 .personal-day-detail-empty {
   min-height: 150px;
@@ -5397,6 +5448,132 @@ button.report-day-line:hover { background: #edf8f5; }
   }
 }
 
+/* Live break allowance and countdown. */
+.agent-break-countdown {
+  grid-column: 1 / -1;
+  width: min(620px, 100%);
+  min-height: 82px;
+  margin-inline: auto;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: 38px minmax(105px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  z-index: 3;
+  border: 1px solid rgba(255, 193, 110, .2);
+  border-radius: 15px;
+  color: #f4f1e9;
+  background: rgba(255, 193, 110, .09);
+  backdrop-filter: blur(10px);
+}
+.agent-break-countdown-icon {
+  width: 38px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #ffc16e;
+  background: rgba(255, 193, 110, .13);
+}
+.agent-break-countdown-copy,
+.agent-break-countdown-value {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.agent-break-countdown-copy small,
+.agent-break-countdown-value small {
+  color: #aabcc0;
+  font-size: 8px;
+  font-weight: 800;
+}
+.agent-break-countdown-copy strong {
+  font-size: 13px;
+}
+.agent-break-countdown-value {
+  justify-items: end;
+  text-align: right;
+}
+.agent-break-countdown-value strong {
+  overflow: hidden;
+  color: #ffc16e;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-break-countdown-track {
+  height: 6px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .1);
+}
+.agent-break-countdown-track > i {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffc16e, #db872d);
+  transition: width .5s ease;
+}
+.agent-break-countdown.is-overdue {
+  border-color: rgba(255, 154, 142, .25);
+  background: rgba(255, 154, 142, .1);
+}
+.agent-break-countdown.is-overdue .agent-break-countdown-icon,
+.agent-break-countdown.is-overdue .agent-break-countdown-value strong {
+  color: #ff9a8e;
+}
+.agent-break-countdown.is-overdue .agent-break-countdown-icon {
+  background: rgba(255, 154, 142, .12);
+}
+.agent-break-countdown.is-overdue .agent-break-countdown-track > i {
+  background: linear-gradient(90deg, #ff9a8e, #cc5d51);
+}
+.clocking-action-card .agent-break-countdown,
+.personal-clocking-clock-only .agent-break-countdown {
+  color: #173943;
+  border-color: #f0dfc7;
+  background: #fff8ed;
+  backdrop-filter: none;
+}
+.clocking-action-card .agent-break-countdown-copy small,
+.clocking-action-card .agent-break-countdown-value small,
+.personal-clocking-clock-only .agent-break-countdown-copy small,
+.personal-clocking-clock-only .agent-break-countdown-value small {
+  color: #7f8e91;
+}
+.clocking-action-card .agent-break-countdown-track,
+.personal-clocking-clock-only .agent-break-countdown-track {
+  background: #efe6d8;
+}
+.clocking-action-card .agent-break-countdown.is-overdue,
+.personal-clocking-clock-only .agent-break-countdown.is-overdue {
+  border-color: #f1d0ca;
+  background: #fff1ee;
+}
+
+@media (max-width: 520px) {
+  .agent-break-countdown {
+    width: 100%;
+    min-height: 78px;
+    padding: 11px 12px;
+    grid-template-columns: 34px minmax(80px, auto) minmax(0, 1fr);
+    gap: 8px;
+    border-radius: 14px;
+  }
+  .agent-break-countdown-icon {
+    width: 34px;
+    border-radius: 10px;
+  }
+  .agent-break-countdown-copy strong {
+    font-size: 12px;
+  }
+  .agent-break-countdown-value strong {
+    font-size: 11px;
+  }
+}
+
 /* Tablet and desktop time clock — the mobile language, given more room. */
 @media (min-width: 721px) {
   .personal-clocking-clock-only .agent-welcome,
@@ -6890,6 +7067,184 @@ button.report-day-line:hover { background: #edf8f5; }
 .work-policy-check strong { color: #40565d; font-size: 10px; }
 .work-policy-check small { color: #88969a; font-size: 9px; }
 .work-policy-advanced-content > .work-policy-fields { margin-top: 3px; }
+.work-policy-reminder-step { padding-bottom: 16px; }
+.work-reminder-settings {
+  overflow: hidden;
+  border: 1px solid #dce7e4;
+  border-radius: 14px;
+  background: #f8fbfa;
+  transition: border-color .2s, background .2s;
+}
+.work-reminder-settings.is-enabled {
+  border-color: #a9dfd8;
+  background: #f1fbf9;
+}
+.work-reminder-settings > header {
+  min-height: 72px;
+  padding: 13px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.work-reminder-settings > header > span {
+  width: 38px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #71898d;
+  background: #e7efed;
+}
+.work-reminder-settings.is-enabled > header > span {
+  color: #087f77;
+  background: #d7f3ee;
+}
+.work-reminder-settings > header > div { min-width: 0; display: grid; gap: 3px; }
+.work-reminder-settings > header strong { color: #314d55; font-size: 10px; }
+.work-reminder-settings > header small {
+  color: #839398;
+  font-size: 8px;
+  line-height: 1.45;
+}
+.work-reminder-master-switch {
+  min-width: 94px;
+  min-height: 36px;
+  padding: 5px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d6e1de;
+  border-radius: 999px;
+  color: #73868a;
+  background: #fff;
+  font: inherit;
+  font-size: 8px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.work-reminder-master-switch i {
+  width: 27px;
+  height: 16px;
+  padding: 2px;
+  display: flex;
+  justify-content: flex-start;
+  border-radius: 999px;
+  background: #cbd7d4;
+  transition: background .2s;
+}
+.work-reminder-master-switch i::after {
+  content: "";
+  width: 12px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(4, 27, 34, .2);
+  transition: transform .2s;
+}
+.work-reminder-master-switch[aria-checked="true"] {
+  color: #087c75;
+  border-color: #8dd5ce;
+  background: #e7f8f5;
+}
+.work-reminder-master-switch[aria-checked="true"] i { background: #16a79c; }
+.work-reminder-master-switch[aria-checked="true"] i::after { transform: translateX(11px); }
+.work-reminder-options {
+  padding: 0 13px 13px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.work-reminder-options label {
+  min-width: 0;
+  min-height: 61px;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  border: 1px solid #deebe8;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .78);
+  cursor: pointer;
+}
+.work-reminder-options input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--teal);
+}
+.work-reminder-options label > span { display: grid; gap: 3px; }
+.work-reminder-options strong { color: #39545b; font-size: 9px; }
+.work-reminder-options small { color: #87979b; font-size: 7px; line-height: 1.4; }
+.work-reminder-advanced {
+  margin: 0 13px 10px;
+  overflow: hidden;
+  border: 1px solid #dce7e4;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .72);
+}
+.work-reminder-advanced summary {
+  min-height: 43px;
+  padding: 9px 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  color: #526b71;
+  cursor: pointer;
+}
+.work-reminder-advanced summary::-webkit-details-marker { display: none; }
+.work-reminder-advanced summary > span { display: flex; align-items: center; gap: 6px; font-size: 8px; font-weight: 850; }
+.work-reminder-advanced summary > span svg { color: var(--teal); }
+.work-reminder-advanced summary small { color: #8a999d; font-size: 7px; }
+.work-reminder-advanced summary > svg { transition: transform .2s; }
+.work-reminder-advanced[open] summary > svg { transform: rotate(180deg); }
+.work-reminder-advanced > div {
+  padding: 11px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border-top: 1px solid #e5eeec;
+}
+.work-reminder-advanced label { min-width: 0; display: grid; gap: 5px; }
+.work-reminder-advanced label > span { color: #657a7f; font-size: 7px; font-weight: 850; }
+.work-reminder-advanced label > div {
+  min-height: 39px;
+  padding: 0 9px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #dce6e4;
+  border-radius: 9px;
+  color: #8a999d;
+  background: #fff;
+}
+.work-reminder-advanced input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #2f4b53;
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 800;
+}
+.work-reminder-advanced input:disabled { opacity: .4; }
+.work-reminder-advanced em { color: #8b999d; font-size: 7px; font-style: normal; font-weight: 800; }
+.work-reminder-permission-note {
+  margin: 0;
+  padding: 0 14px 13px;
+  color: #89989c;
+  font-size: 7px;
+  line-height: 1.45;
+}
+.work-reminder-settings.is-compact > header { min-height: 64px; }
+.work-reminder-settings.is-compact .work-reminder-options { grid-template-columns: 1fr 1fr; }
 .work-policy-preview {
   padding: 21px;
   position: sticky;
@@ -7072,6 +7427,21 @@ button.report-day-line:hover { background: #edf8f5; }
   .daily-schedule-list article label:last-child { grid-column: 1 / -1; }
   .work-policy-advanced summary { grid-template-columns: minmax(0, 1fr) auto; }
   .work-policy-advanced summary small { display: none; }
+  .work-reminder-settings > header {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  .work-reminder-settings > header > span { width: 36px; }
+  .work-reminder-master-switch {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+  .work-reminder-options,
+  .work-reminder-settings.is-compact .work-reminder-options {
+    grid-template-columns: 1fr;
+  }
+  .work-reminder-advanced summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .work-reminder-advanced summary small { display: none; }
+  .work-reminder-advanced > div { grid-template-columns: 1fr; }
   .work-policy-preview { padding: 19px; }
   .work-policy-actions { align-items: stretch; flex-direction: column; }
   .work-policy-actions .button { width: 100%; }

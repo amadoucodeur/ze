@@ -315,11 +315,26 @@ export function OrganisationSettingsWorkspace({
     setIdentityFeedback({ type: "success", message: "Logo prêt. Enregistrez l’identité pour confirmer." });
   }
 
-  const mapEmbedUrl = useMemo(() => {
+  const mapPreview = useMemo(() => {
+    if (!location.lat.trim() || !location.long.trim() || !location.radius.trim()) {
+      return null;
+    }
     const lat = Number(location.lat);
     const long = Number(location.long);
     const radius = Number(location.radius);
-    if (!Number.isFinite(lat) || !Number.isFinite(long) || !Number.isFinite(radius)) return null;
+    if (
+      !Number.isFinite(lat) ||
+      lat < -90 ||
+      lat > 90 ||
+      !Number.isFinite(long) ||
+      long < -180 ||
+      long > 180 ||
+      !Number.isFinite(radius) ||
+      radius < 10 ||
+      radius > 50_000
+    ) {
+      return null;
+    }
     const latitudeDelta = Math.max(radius / 111_320, 0.002);
     const longitudeDelta = Math.max(latitudeDelta / Math.max(Math.cos(lat * Math.PI / 180), 0.2), 0.002);
     const bbox = [
@@ -328,7 +343,16 @@ export function OrganisationSettingsWorkspace({
       long + longitudeDelta * 2.5,
       lat + latitudeDelta * 2.5,
     ].join(",");
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${long}`)}`;
+    const visibleHeightMeters = latitudeDelta * 5 * 111_320;
+    const diameterPercent = Math.min(
+      72,
+      Math.max(8, (radius * 2 * 100) / visibleHeightMeters),
+    );
+    return {
+      url: `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${long}`)}`,
+      diameterPercent,
+      radiusLabel: new Intl.NumberFormat("fr-FR").format(Math.round(radius)),
+    };
   }, [location.lat, location.long, location.radius]);
 
   if (loading) return <div className="settings-loading"><LoaderCircle className="spin" size={22} /> Chargement de l’espace de travail...</div>;
@@ -370,7 +394,29 @@ export function OrganisationSettingsWorkspace({
         <section className="settings-card">
           <div className="settings-card-heading"><span className="settings-icon settings-icon-soft"><MapPin size={19} /></span><div><h2>Zone principale de pointage</h2><p>Définissez le centre et le rayon dans lesquels un pointage sur site est accepté.</p></div></div>
           <div className="location-toolbar"><button className="button button-ghost" type="button" onClick={useCurrentLocation} disabled={locating}>{locating ? <LoaderCircle className="spin" size={17} /> : <Crosshair size={17} />} Utiliser ma position actuelle</button><p>Faites cette opération depuis le site, idéalement à l’extérieur ou près d’une fenêtre.</p></div>
-          {mapEmbedUrl && <div className="location-map-preview"><iframe title="Aperçu de la zone principale" src={mapEmbedUrl} loading="lazy" /><div><MapPin size={16} /><span><strong>Centre de la zone</strong><small>Le cercle réel correspond au rayon défini ci-dessous.</small></span></div></div>}
+          {mapPreview && (
+            <div className="location-map-preview">
+              <iframe
+                title={`Aperçu de la zone autorisée de ${mapPreview.radiusLabel} mètres`}
+                src={mapPreview.url}
+                loading="lazy"
+              />
+              <span
+                className="location-map-radius"
+                style={{ height: `${mapPreview.diameterPercent}%` }}
+                aria-hidden="true"
+              >
+                <i>{mapPreview.radiusLabel} m</i>
+              </span>
+              <div>
+                <MapPin size={16} />
+                <span>
+                  <strong>Zone autorisée · {mapPreview.radiusLabel} m</strong>
+                  <small>Le cercle suit instantanément le rayon saisi.</small>
+                </span>
+              </div>
+            </div>
+          )}
           <div className="settings-fields-grid location-fields-grid">
             <label className="settings-field"><span>Latitude</span><div className="settings-input"><MapPin size={17} /><input inputMode="decimal" value={location.lat} onChange={(event) => setLocation({ ...location, lat: event.target.value })} placeholder="5.359952" required /></div></label>
             <label className="settings-field"><span>Longitude</span><div className="settings-input"><MapPin size={17} /><input inputMode="decimal" value={location.long} onChange={(event) => setLocation({ ...location, long: event.target.value })} placeholder="-4.008256" required /></div></label>

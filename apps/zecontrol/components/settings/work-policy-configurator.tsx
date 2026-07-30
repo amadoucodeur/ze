@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  areWorkReminderSettingsValid,
   defaultWorkPolicies,
   fixedDailyMinutes,
   formatMinutes,
@@ -23,10 +24,12 @@ import {
   scheduleForDay,
   scheduledMinutes,
   weekdayOptions,
+  workReminderSettings,
   type WorkPolicyDefinition,
   type WorkPolicyMode,
 } from "@/lib/work-policy";
 import { DailyScheduleOverrides } from "./daily-schedule-overrides";
+import { WorkReminderSettings } from "./work-reminder-settings";
 
 type Feedback = { type: "error" | "success"; message: string } | null;
 
@@ -203,7 +206,13 @@ export function WorkPolicyConfigurator({
   );
 
   function chooseMode(mode: WorkPolicyMode) {
-    setDefinition({ ...defaultWorkPolicies[mode], days: [...defaultWorkPolicies[mode].days] });
+    const source = defaultWorkPolicies[mode];
+    setDefinition({
+      ...source,
+      days: [...source.days],
+      daySchedules: {},
+      reminders: { ...workReminderSettings(source) },
+    });
     setFeedback(null);
   }
 
@@ -272,6 +281,13 @@ export function WorkPolicyConfigurator({
       definition.minimumBreakAfterMinutes > 1440
     ) {
       return "Une durée configurée n’est pas valide.";
+    }
+    if (
+      definition.mode === "fixed" &&
+      workReminderSettings(definition).enabled &&
+      !areWorkReminderSettingsValid(definition)
+    ) {
+      return "Vérifiez les seuils configurés pour les rappels.";
     }
     return null;
   }
@@ -554,6 +570,22 @@ export function WorkPolicyConfigurator({
               </section>
             )}
 
+            {definition.mode === "fixed" && (
+              <section className="work-policy-step work-policy-reminder-step">
+                <header>
+                  <span>4</span>
+                  <div>
+                    <h2>Les rappels utiles</h2>
+                    <p>Activez seulement les rappels dont votre équipe a besoin.</p>
+                  </div>
+                </header>
+                <WorkReminderSettings
+                  definition={definition}
+                  onChange={setDefinition}
+                />
+              </section>
+            )}
+
             <details className="work-policy-advanced">
               <summary>
                 <span><Sparkles size={17} /> Options avancées</span>
@@ -575,10 +607,6 @@ export function WorkPolicyConfigurator({
                   <label>
                     <span>Repos minimal entre deux journées</span>
                     <div><TimerReset size={17} /><input type="number" min={0} max={48} step={1} value={definition.minimumRestMinutes / 60} onChange={(event) => setDefinition({ ...definition, minimumRestMinutes: Math.round(Number(event.target.value) * 60) })} /><em>h</em></div>
-                  </label>
-                  <label>
-                    <span>Pause requise après</span>
-                    <div><Clock3 size={17} /><input type="number" min={0} max={24} step={0.5} value={definition.minimumBreakAfterMinutes / 60} onChange={(event) => setDefinition({ ...definition, minimumBreakAfterMinutes: Math.round(Number(event.target.value) * 60) })} /><em>h</em></div>
                   </label>
                   <label className="wide">
                     <span>Arrondir les pointages</span>
@@ -609,6 +637,14 @@ export function WorkPolicyConfigurator({
             )}
             <ul>
               <li><Check size={14} /> {definition.breakMinutes > 0 ? `${definition.breakMinutes} min de pause prévues` : "Aucune pause déduite"}</li>
+              {definition.mode === "fixed" && (
+                <li>
+                  <Check size={14} />{" "}
+                  {workReminderSettings(definition).enabled
+                    ? `Rappels à ${workReminderSettings(definition).warningPercent} %`
+                    : "Rappels automatiques désactivés"}
+                </li>
+              )}
               <li><Check size={14} /> {definition.overtimeEnabled ? "Heures supplémentaires suivies" : "Pas de suivi des dépassements"}</li>
               <li><Check size={14} /> Les anciennes périodes restent inchangées</li>
             </ul>

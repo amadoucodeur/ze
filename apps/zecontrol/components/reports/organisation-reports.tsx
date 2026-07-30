@@ -824,7 +824,7 @@ export function OrganisationReports({
     ]);
     const summaryHeaders = view === "live" ? liveSummaryHeaders : reportSummaryHeaders;
     const summaryRows = view === "live" ? liveSummaryRows : reportSummaryRows;
-    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard", "Solde", "Chronologie"];
+    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard à l’arrivée", "Dépassement de pause", "Retard cumulé", "Solde", "Chronologie"];
     const detailRows = orderedDayRows.map((row) => [
       row.profile.fullname,
       new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(`${row.day}T12:00:00`)),
@@ -834,7 +834,9 @@ export function OrganisationReports({
       dayCellValue(row, "end"),
       dayCellValue(row, "breakCount"),
       dayCellValue(row, "pauseDuration"),
-      dayCellValue(row, "late"),
+      durationLabel(row.evaluation?.arrivalLateMinutes ?? 0),
+      durationLabel(row.evaluation?.breakOverrunMinutes ?? 0),
+      durationLabel(row.evaluation?.lateMinutes ?? 0),
       dayCellValue(row, "balance"),
       row.valid.map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
     ]);
@@ -1011,7 +1013,7 @@ export function OrganisationReports({
               <div><strong>{durationLabel(selectedRow.worked)}</strong><small>travaillées</small><i /><strong>{durationLabel(selectedRow.pause)}</strong><small>de pause</small></div>
             </header>
             <div className="admin-detail-date"><Clock3 size={16} /><span>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(new Date(`${selectedRow.day}T12:00:00`))}</span><strong className={`admin-detail-state ${selectedRow.status}`}>{statusLabels[selectedRow.status]}</strong></div>
-            {selectedRow.evaluation && <div className="admin-policy-comparison"><article><small>Horaire prévu</small><strong>{selectedRow.evaluation.schedule ? `${selectedRow.evaluation.schedule.startTime}–${selectedRow.evaluation.schedule.endTime}` : "Libre"}</strong></article><article><small>Temps attendu</small><strong>{durationLabel(selectedRow.evaluation.expectedMinutes)}</strong></article><article><small>Écart</small><strong>{selectedRow.evaluation.differenceMinutes > 0 ? "+" : selectedRow.evaluation.differenceMinutes < 0 ? "−" : ""}{durationLabel(Math.abs(selectedRow.evaluation.differenceMinutes))}</strong></article><article className={selectedRow.evaluation.label === "Conforme" ? "ok" : "issue"}><small>Lecture</small><strong>{selectedRow.evaluation.label}</strong></article></div>}
+            {selectedRow.evaluation && <div className="admin-policy-comparison"><article><small>Horaire prévu</small><strong>{selectedRow.evaluation.schedule ? `${selectedRow.evaluation.schedule.startTime}–${selectedRow.evaluation.schedule.endTime}` : "Libre"}</strong></article><article><small>Temps attendu</small><strong>{durationLabel(selectedRow.evaluation.expectedMinutes)}</strong></article><article><small>Écart</small><strong>{selectedRow.evaluation.differenceMinutes > 0 ? "+" : selectedRow.evaluation.differenceMinutes < 0 ? "−" : ""}{durationLabel(Math.abs(selectedRow.evaluation.differenceMinutes))}</strong></article><article className={selectedRow.evaluation.lateMinutes > 0 ? "issue" : "ok"} title={`${durationLabel(selectedRow.evaluation.arrivalLateMinutes)} à l’arrivée · ${durationLabel(selectedRow.evaluation.breakOverrunMinutes)} de dépassement de pause`}><small>Retard cumulé</small><strong>{durationLabel(selectedRow.evaluation.lateMinutes)}</strong></article></div>}
             <div className="activity-detail-events">
               {selectedRow.events.length ? [...selectedRow.events].sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at)).map((event) => {
                 const Icon = typeIcons[event.type];

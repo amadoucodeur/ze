@@ -1,6 +1,7 @@
 import {
   scheduleForDay,
   scheduledMinutes,
+  workReminderSettings,
   type WorkPolicyDefinition,
   type WorkDaySchedule,
 } from "./work-policy";
@@ -17,11 +18,25 @@ export type WorkPolicyMessage = {
   message: string;
 };
 
+export type WorkPolicyReminder = WorkPolicyMessage & {
+  key: string;
+};
+
+export type BreakProgress = {
+  allowedMinutes: number;
+  elapsedMinutes: number;
+  remainingMinutes: number;
+  overdueMinutes: number;
+  progressPercent: number;
+};
+
 export type WorkdayEvaluation = {
   schedule: WorkDaySchedule | null;
   expectedMinutes: number;
   workedMinutes: number;
   pauseMinutes: number;
+  arrivalLateMinutes: number;
+  breakOverrunMinutes: number;
   lateMinutes: number;
   earlyDepartureMinutes: number;
   overtimeMinutes: number;
@@ -118,6 +133,219 @@ function durations(events: EvaluatedClockingEvent[], now: Date) {
   };
 }
 
+function repeatedReminderKey(
+  prefix: string,
+  overdueMinutes: number,
+  repeatMinutes: number,
+  followUpEnabled: boolean,
+) {
+  if (!followUpEnabled || overdueMinutes < 5) return `${prefix}-100`;
+  return `${prefix}-overdue-${Math.floor((overdueMinutes - 5) / Math.max(1, repeatMinutes))}`;
+}
+
+export function currentBreakProgress({
+  definition,
+  events,
+  now,
+  timeZone,
+}: {
+  definition: WorkPolicyDefinition;
+  events: EvaluatedClockingEvent[];
+  now: Date;
+  timeZone: string;
+}): BreakProgress | null {
+  if (definition.mode !== "fixed") return null;
+  const localNow = zonedParts(now, timeZone);
+  const schedule = scheduleForDay(
+    definition,
+    weekdayForDate(localNow.date),
+  );
+  if (!schedule || schedule.breakMinutes <= 0) return null;
+
+  const last = validEvents(events).at(-1);
+  if (!last || last.type !== "break") return null;
+
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((+now - +new Date(last.pointed_at)) / 60_000),
+  );
+  const remainingMinutes = Math.max(
+    0,
+    schedule.breakMinutes - elapsedMinutes,
+  );
+  const overdueMinutes = Math.max(
+    0,
+    elapsedMinutes - schedule.breakMinutes,
+  );
+
+  return {
+    allowedMinutes: schedule.breakMinutes,
+    elapsedMinutes,
+    remainingMinutes,
+    overdueMinutes,
+    progressPercent: Math.min(
+      100,
+      Math.round((elapsedMinutes / schedule.breakMinutes) * 100),
+    ),
+  };
+}
+
+export function currentWorkPolicyReminder({
+  definition,
+  events,
+  now,
+  timeZone,
+}: {
+  definition: WorkPolicyDefinition;
+  events: EvaluatedClockingEvent[];
+  now: Date;
+  timeZone: string;
+}): WorkPolicyReminder | null {
+  if (definition.mode !== "fixed") return null;
+  const reminders = workReminderSettings(definition);
+  if (!reminders.enabled) return null;
+
+  const localNow = zonedParts(now, timeZone);
+  const schedule = scheduleForDay(
+    definition,
+    weekdayForDate(localNow.date),
+  );
+  if (!schedule) return null;
+
+  const result = durations(events, now);
+  const last = result.events.at(-1);
+  const start = timeMinutes(schedule.startTime);
+  const rawEnd = timeMinutes(schedule.endTime);
+  const end = rawEnd <= start ? rawEnd + 24 * 60 : rawEnd;
+  let currentMinutes = localNow.minutes;
+  if (rawEnd <= start && currentMinutes <= rawEnd) currentMinutes += 24 * 60;
+
+  if (!last && currentMinutes < end && reminders.arrivalEnabled) {
+    const arrivalWindowStart = start - reminders.arrivalLeadMinutes;
+    const reminderAt =
+      arrivalWindowStart +
+      Math.ceil(
+        reminders.arrivalLeadMinutes *
+          (reminders.warningPercent / 100),
+      );
+    if (currentMinutes >= reminderAt && currentMinutes < start) {
+      return {
+        key: `arrival-warning-${reminders.warningPercent}`,
+        tone: "reminder",
+        title: `Votre service commence bientôt`,
+        message: `Pensez à pointer votre arrivée. Il reste ${start - currentMinutes} min avant ${schedule.startTime}.`,
+      };
+    }
+    if (currentMinutes >= start) {
+      const elapsed = currentMinutes - start;
+      const toleranceRemaining = Math.max(
+        0,
+        definition.toleranceMinutes - elapsed,
+      );
+      return {
+        key: repeatedReminderKey(
+          "arrival",
+          elapsed,
+          reminders.repeatMinutes,
+          reminders.followUpEnabled,
+        ),
+        tone:
+          elapsed > definition.toleranceMinutes ? "attention" : "reminder",
+        title:
+          elapsed === 0
+            ? "C’est l’heure de commencer"
+            : `Arrivée non pointée depuis ${elapsed} min`,
+        message:
+          toleranceRemaining > 0
+            ? `Pointez votre arrivée. Il reste ${toleranceRemaining} min de tolérance.`
+            : "Pointez dès votre arrivée. Le retard restera simplement visible dans votre journée.",
+      };
+    }
+    return null;
+  }
+
+  if (!last || last.type === "end") return null;
+
+  if (
+    last.type === "break" &&
+    schedule.breakMinutes > 0 &&
+    reminders.breakEndEnabled
+  ) {
+    const progress = currentBreakProgress({
+      definition,
+      events,
+      now,
+      timeZone,
+    });
+    if (!progress) return null;
+    const reminderAt = Math.ceil(
+      schedule.breakMinutes * (reminders.warningPercent / 100),
+    );
+    if (progress.elapsedMinutes < reminderAt) return null;
+    if (progress.remainingMinutes > 0) {
+      return {
+        key: `pause-end-warning-${reminders.warningPercent}`,
+        tone: "reminder",
+        title: "Votre pause se termine bientôt",
+        message: `${progress.remainingMinutes} min restantes sur les ${schedule.breakMinutes} min autorisées.`,
+      };
+    }
+    return {
+      key: repeatedReminderKey(
+        "pause-end",
+        progress.overdueMinutes,
+        reminders.repeatMinutes,
+        reminders.followUpEnabled,
+      ),
+      tone: progress.overdueMinutes > 0 ? "attention" : "reminder",
+      title:
+        progress.overdueMinutes > 0
+          ? `Pause dépassée de ${progress.overdueMinutes} min`
+          : "Votre temps de pause est atteint",
+      message: "Pensez à pointer votre reprise lorsque vous recommencez.",
+    };
+  }
+
+  const hasBreak = result.events.some((event) => event.type === "break");
+  const breakDueAt = definition.minimumBreakAfterMinutes;
+  if (
+    !hasBreak &&
+    breakDueAt > 0 &&
+    reminders.breakDueEnabled &&
+    (last.type === "start" || last.type === "resume")
+  ) {
+    const reminderAt = Math.ceil(
+      breakDueAt * (reminders.warningPercent / 100),
+    );
+    if (result.workedMinutes < reminderAt) return null;
+    if (result.workedMinutes < breakDueAt) {
+      return {
+        key: `pause-due-warning-${reminders.warningPercent}`,
+        tone: "reminder",
+        title: "Votre pause approche",
+        message: `Encore ${breakDueAt - result.workedMinutes} min avant la pause prévue.`,
+      };
+    }
+    const overdue = result.workedMinutes - breakDueAt;
+    return {
+      key: repeatedReminderKey(
+        "pause-due",
+        overdue,
+        reminders.repeatMinutes,
+        reminders.followUpEnabled,
+      ),
+      tone: overdue > 0 ? "attention" : "reminder",
+      title:
+        overdue > 0
+          ? `Pause attendue depuis ${overdue} min`
+          : "C’est le moment de prendre votre pause",
+      message: `Une pause de ${schedule.breakMinutes} min est prévue. Pointez-la lorsque vous vous arrêtez.`,
+    };
+  }
+
+  return null;
+}
+
 export function evaluateWorkday({
   definition,
   events,
@@ -142,6 +370,8 @@ export function evaluateWorkday({
           : 0,
       workedMinutes: result.workedMinutes,
       pauseMinutes: result.pauseMinutes,
+      arrivalLateMinutes: 0,
+      breakOverrunMinutes: 0,
       lateMinutes: 0,
       earlyDepartureMinutes: 0,
       overtimeMinutes: 0,
@@ -165,6 +395,8 @@ export function evaluateWorkday({
       expectedMinutes,
       workedMinutes: 0,
       pauseMinutes: 0,
+      arrivalLateMinutes: 0,
+      breakOverrunMinutes: 0,
       lateMinutes: 0,
       earlyDepartureMinutes: 0,
       overtimeMinutes: 0,
@@ -178,10 +410,15 @@ export function evaluateWorkday({
   const endMinutes = lastEnd
     ? zonedParts(new Date(lastEnd.pointed_at), timeZone).minutes
     : null;
-  const lateMinutes =
+  const arrivalLateMinutes =
     startMinutes === null
       ? 0
       : Math.max(0, startMinutes - scheduledStart - definition.toleranceMinutes);
+  const breakOverrunMinutes = Math.max(
+    0,
+    result.pauseMinutes - schedule.breakMinutes,
+  );
+  const lateMinutes = arrivalLateMinutes + breakOverrunMinutes;
   const earlyDepartureMinutes =
     endMinutes === null ? 0 : Math.max(0, scheduledEnd - endMinutes);
   const overtimeMinutes = definition.overtimeEnabled
@@ -201,6 +438,8 @@ export function evaluateWorkday({
     expectedMinutes,
     workedMinutes: result.workedMinutes,
     pauseMinutes: result.pauseMinutes,
+    arrivalLateMinutes,
+    breakOverrunMinutes,
     lateMinutes,
     earlyDepartureMinutes,
     overtimeMinutes,
@@ -285,7 +524,7 @@ export function currentWorkPolicyMessage({
     if (evaluation.lateMinutes > 0) {
       return {
         tone: "reminder",
-        title: `Journée terminée avec ${evaluation.lateMinutes} min de retard`,
+        title: `Journée terminée avec ${evaluation.lateMinutes} min de retard cumulé`,
         message: "Votre pointage est bien enregistré.",
       };
     }
@@ -297,16 +536,34 @@ export function currentWorkPolicyMessage({
   }
 
   if (last.type === "break") {
-    const breakStartedAt = +new Date(last.pointed_at);
-    const currentBreakMinutes = Math.floor((+now - breakStartedAt) / 60_000);
-    if (schedule.breakMinutes > 0 && currentBreakMinutes >= schedule.breakMinutes) {
+    const progress = currentBreakProgress({
+      definition,
+      events,
+      now,
+      timeZone,
+    });
+    if (!progress) return null;
+    const reminderAt = Math.ceil(schedule.breakMinutes * 0.85);
+    if (progress.overdueMinutes > 0) {
       return {
-        tone: "info",
-        title: "Votre pause prévue est atteinte",
-        message: `Vous êtes en pause depuis ${currentBreakMinutes} minutes. Reprenez lorsque vous êtes prêt.`,
+        tone: "attention",
+        title: `Pause dépassée de ${progress.overdueMinutes} min`,
+        message: `${schedule.breakMinutes} min étaient autorisées. Pensez à pointer votre reprise.`,
       };
     }
-    return null;
+    if (progress.remainingMinutes === 0) {
+      return {
+        tone: "reminder",
+        title: "Votre temps de pause est atteint",
+        message: `${schedule.breakMinutes} min étaient prévues. Pointez votre reprise lorsque vous recommencez.`,
+      };
+    }
+    return {
+      tone:
+        progress.elapsedMinutes >= reminderAt ? "reminder" : "info",
+      title: `${progress.remainingMinutes} min de pause restantes`,
+      message: `${progress.elapsedMinutes} min écoulées sur ${schedule.breakMinutes} min autorisées.`,
+    };
   }
 
   if (currentMinutes >= end) {
@@ -322,12 +579,23 @@ export function currentWorkPolicyMessage({
   if (
     !hasBreak &&
     definition.minimumBreakAfterMinutes > 0 &&
-    result.workedMinutes >= definition.minimumBreakAfterMinutes
+    result.workedMinutes >=
+      Math.ceil(definition.minimumBreakAfterMinutes * 0.85)
   ) {
+    const remaining = Math.max(
+      0,
+      definition.minimumBreakAfterMinutes - result.workedMinutes,
+    );
     return {
-      tone: "reminder",
-      title: "Pensez à prendre une pause",
-      message: `Vous travaillez depuis ${Math.floor(result.workedMinutes / 60)} h sans interruption.`,
+      tone: remaining > 0 ? "reminder" : "attention",
+      title:
+        remaining > 0
+          ? "Votre pause approche"
+          : "Pensez à prendre votre pause",
+      message:
+        remaining > 0
+          ? `Encore ${remaining} min avant la pause prévue.`
+          : `Une pause de ${schedule.breakMinutes} min est prévue.`,
     };
   }
 
