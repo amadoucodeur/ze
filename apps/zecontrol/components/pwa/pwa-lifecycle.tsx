@@ -112,6 +112,37 @@ function subscribeToBrowserReady() {
   return () => undefined;
 }
 
+function isPhoneDevice() {
+  const userAgentPhone =
+    /iPhone|iPod|Windows Phone|Mobi|Android.+Mobile/i.test(
+      window.navigator.userAgent,
+    );
+  const shortSide = Math.min(window.innerWidth, window.innerHeight);
+  const longSide = Math.max(window.innerWidth, window.innerHeight);
+  const compactTouchPhone =
+    window.navigator.maxTouchPoints > 0 &&
+    shortSide <= 600 &&
+    longSide <= 1_100;
+
+  return userAgentPhone || compactTouchPhone;
+}
+
+function isPhoneInLandscape() {
+  return window.innerWidth > window.innerHeight && isPhoneDevice();
+}
+
+function subscribeToPhoneOrientation(callback: () => void) {
+  const media = window.matchMedia("(orientation: landscape)");
+  window.addEventListener("resize", callback);
+  window.addEventListener("orientationchange", callback);
+  media.addEventListener?.("change", callback);
+  return () => {
+    window.removeEventListener("resize", callback);
+    window.removeEventListener("orientationchange", callback);
+    media.removeEventListener?.("change", callback);
+  };
+}
+
 export function PwaLifecycle() {
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
@@ -123,6 +154,11 @@ export function PwaLifecycle() {
   const browserReady = useSyncExternalStore(
     subscribeToBrowserReady,
     () => true,
+    () => false,
+  );
+  const phoneInLandscape = useSyncExternalStore(
+    subscribeToPhoneOrientation,
+    isPhoneInLandscape,
     () => false,
   );
   const previousOnline = useRef(true);
@@ -150,14 +186,19 @@ export function PwaLifecycle() {
     !isStandalone();
 
   useEffect(() => {
-    if (!isStandalone()) return;
-    const orientation = window.screen.orientation as
-      | (ScreenOrientation & {
-          lock?: (value: "portrait-primary") => Promise<void>;
-        })
-      | undefined;
-    void orientation?.lock?.("portrait-primary").catch(() => undefined);
-  }, []);
+    const root = document.documentElement;
+    root.classList.toggle("portrait-phone-locked", phoneInLandscape);
+
+    if (isPhoneDevice() && isStandalone()) {
+      const orientation = window.screen.orientation as
+        | (ScreenOrientation & {
+            lock?: (value: "portrait-primary") => Promise<void>;
+          })
+        | undefined;
+      void orientation?.lock?.("portrait-primary").catch(() => undefined);
+    }
+    return () => root.classList.remove("portrait-phone-locked");
+  }, [phoneInLandscape]);
 
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
@@ -477,7 +518,12 @@ export function PwaLifecycle() {
 
   return (
     <>
-      <div className="portrait-orientation-guard" role="alert" aria-live="assertive">
+      <div
+        className={`portrait-orientation-guard ${phoneInLandscape ? "is-visible" : ""}`}
+        role="alert"
+        aria-live="assertive"
+        aria-hidden={!phoneInLandscape}
+      >
         <span aria-hidden="true"><Smartphone size={42} /><RotateCcw size={22} /></span>
         <strong>Tournez votre téléphone</strong>
         <small>ZeControl s’utilise en mode portrait.</small>

@@ -5839,59 +5839,58 @@ button.report-day-line:hover { background: #edf8f5; }
 }
 
 /* Mobile phones remain in portrait; tablets and desktops keep adaptive layouts. */
-.portrait-orientation-guard { display: none; }
-
-@media (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
-  .portrait-orientation-guard {
-    padding:
-      max(24px, env(safe-area-inset-top))
-      max(28px, env(safe-area-inset-right))
-      max(24px, env(safe-area-inset-bottom))
-      max(28px, env(safe-area-inset-left));
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 10px;
-    position: fixed;
-    z-index: 10000;
-    inset: 0;
-    color: #f4f1e9;
-    background:
-      radial-gradient(circle at 76% 18%, rgba(85,185,233,.24), transparent 34%),
-      linear-gradient(135deg, #080a0b 0%, #003f5d 100%);
-    text-align: center;
-    touch-action: none;
-  }
-  .portrait-orientation-guard > span {
-    width: 82px;
-    height: 82px;
-    margin-bottom: 7px;
-    display: grid;
-    place-items: center;
-    position: relative;
-    border: 1px solid rgba(109,226,215,.2);
-    border-radius: 25px;
-    color: #6de2d7;
-    background: rgba(255,255,255,.07);
-  }
-  .portrait-orientation-guard > span svg:last-child {
-    position: absolute;
-    right: -9px;
-    bottom: -4px;
-    padding: 4px;
-    border-radius: 50%;
-    color: #080a0b;
-    background: #6de2d7;
-  }
-  .portrait-orientation-guard strong {
-    font-family: var(--font-display), sans-serif;
-    font-size: clamp(24px, 7vw, 34px);
-    letter-spacing: -.04em;
-  }
-  .portrait-orientation-guard small {
-    color: #a9bec3;
-    font-size: 13px;
-  }
+.portrait-orientation-guard {
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(28px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(28px, env(safe-area-inset-left));
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  color: #f4f1e9;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(85,185,233,.24), transparent 34%),
+    linear-gradient(135deg, #080a0b 0%, #003f5d 100%);
+  text-align: center;
+  touch-action: none;
+}
+.portrait-orientation-guard.is-visible { display: grid; }
+html.portrait-phone-locked,
+html.portrait-phone-locked body { overflow: hidden; overscroll-behavior: none; }
+.portrait-orientation-guard > span {
+  width: 82px;
+  height: 82px;
+  margin-bottom: 7px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  border: 1px solid rgba(109,226,215,.2);
+  border-radius: 25px;
+  color: #6de2d7;
+  background: rgba(255,255,255,.07);
+}
+.portrait-orientation-guard > span svg:last-child {
+  position: absolute;
+  right: -9px;
+  bottom: -4px;
+  padding: 4px;
+  border-radius: 50%;
+  color: #080a0b;
+  background: #6de2d7;
+}
+.portrait-orientation-guard strong {
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(24px, 7vw, 34px);
+  letter-spacing: -.04em;
+}
+.portrait-orientation-guard small {
+  color: #a9bec3;
+  font-size: 13px;
 }
 
 @media (max-width: 720px) {
