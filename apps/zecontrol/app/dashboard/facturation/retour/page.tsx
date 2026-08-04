@@ -89,7 +89,7 @@ export default async function BillingReturnPage({
           {completed
             ? "La facture ZeControl est réglée."
             : pending
-              ? "PayDunya traite encore le paiement."
+              ? "Le paiement est encore en cours de traitement."
               : "La facture n’a pas encore été réglée."}
         </h1>
         <p>
@@ -121,4 +121,3 @@ export default async function BillingReturnPage({
     </div>
   );
 }
-

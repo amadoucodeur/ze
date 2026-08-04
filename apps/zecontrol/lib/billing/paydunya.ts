@@ -54,7 +54,7 @@ function resolvePayDunyaMode(): PayDunyaMode {
   const configured = process.env.PAYDUNYA_MODE?.trim();
   if (configured !== "test" && configured !== "production") {
     throw new Error(
-      'PAYDUNYA_MODE doit être explicitement défini à "test" ou "production".',
+      "Le mode de paiement n’est pas correctement configuré.",
     );
   }
 
@@ -64,7 +64,7 @@ function resolvePayDunyaMode(): PayDunyaMode {
     configured !== "production"
   ) {
     throw new Error(
-      "Le déploiement Vercel Production doit utiliser PayDunya en production.",
+      "Le moyen de paiement de production n’est pas correctement configuré.",
     );
   }
   if (
@@ -73,7 +73,7 @@ function resolvePayDunyaMode(): PayDunyaMode {
     configured === "production"
   ) {
     throw new Error(
-      "Les clés PayDunya de production sont interdites dans les déploiements Preview et Development.",
+      "Les clés de paiement de production sont interdites dans les déploiements Preview et Development.",
     );
   }
 
@@ -83,12 +83,12 @@ function resolvePayDunyaMode(): PayDunyaMode {
 function assertMatchingPrivateKey(mode: PayDunyaMode, privateKey: string) {
   if (mode === "production" && privateKey.startsWith("test_")) {
     throw new Error(
-      "La clé privée PayDunya de production ressemble à une clé de test.",
+      "La clé privée de production ressemble à une clé de test.",
     );
   }
   if (mode === "test" && privateKey.startsWith("live_")) {
     throw new Error(
-      "La clé privée PayDunya de test ressemble à une clé de production.",
+      "La clé privée de test ressemble à une clé de production.",
     );
   }
 }
@@ -107,7 +107,7 @@ function assertProductionActionUrl(
     url.hostname === "::1";
   if (url.protocol !== "https:" || isLocal) {
     throw new Error(
-      `${label} doit être une URL HTTPS publique en mode PayDunya production.`,
+      `${label} doit être une URL HTTPS publique en mode production.`,
     );
   }
 }
@@ -124,7 +124,7 @@ export function getPayDunyaConfig(): PayDunyaConfig {
       : process.env.PAYDUNYA_TOKEN_TEST;
   const resolvedPrivateKey = required(
     privateKey,
-    `La clé privée PayDunya ${mode}`,
+    `La clé privée de paiement ${mode}`,
   );
   assertMatchingPrivateKey(mode, resolvedPrivateKey);
 
@@ -132,10 +132,10 @@ export function getPayDunyaConfig(): PayDunyaConfig {
     mode,
     masterKey: required(
       process.env.PAYDUNYA_PRINCIPAL_KEY,
-      "La clé principale PayDunya",
+      "La clé principale de paiement",
     ),
     privateKey: resolvedPrivateKey,
-    token: required(token, `Le token PayDunya ${mode}`),
+    token: required(token, `Le jeton de paiement ${mode}`),
     apiBase:
       mode === "production"
         ? "https://app.paydunya.com/api/v1"
@@ -159,7 +159,7 @@ async function readJson(response: Response) {
   > | null;
   if (!response.ok || !payload) {
     throw new Error(
-      "PayDunya n’a pas répondu correctement. Réessayez dans un instant.",
+      "Le service de paiement n’a pas répondu correctement. Réessayez dans un instant.",
     );
   }
   return payload;
@@ -182,17 +182,17 @@ export async function createPayDunyaCheckout(input: CreateCheckoutInput) {
   const config = getPayDunyaConfig();
   assertProductionActionUrl(
     input.callbackUrl,
-    "L’URL de notification PayDunya",
+    "L’URL de notification du paiement",
     config.mode,
   );
   assertProductionActionUrl(
     input.returnUrl,
-    "L’URL de retour PayDunya",
+    "L’URL de retour du paiement",
     config.mode,
   );
   assertProductionActionUrl(
     input.cancelUrl,
-    "L’URL d’annulation PayDunya",
+    "L’URL d’annulation du paiement",
     config.mode,
   );
   const customer = Object.fromEntries(
@@ -248,7 +248,7 @@ export async function createPayDunyaCheckout(input: CreateCheckoutInput) {
   const token = typeof payload.token === "string" ? payload.token : "";
   if (responseCode !== "00") {
     throw new Error(
-      "PayDunya n’a pas pu préparer le paiement. Réessayez dans un instant.",
+      "Le service de paiement n’a pas pu préparer le règlement. Réessayez dans un instant.",
     );
   }
   if (!isPayDunyaCheckoutUrl(checkoutUrl) || !token) {

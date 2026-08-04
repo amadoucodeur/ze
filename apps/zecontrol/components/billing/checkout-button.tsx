@@ -5,7 +5,7 @@ import { ArrowRight, LoaderCircle } from "lucide-react";
 
 export function CheckoutButton({
   periodId,
-  label = "Régler avec PayDunya",
+  label = "Régler la facture",
 }: {
   periodId: string;
   label?: string;
@@ -62,4 +62,3 @@ export function CheckoutButton({
     </div>
   );
 }
-

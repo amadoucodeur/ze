@@ -73,7 +73,7 @@ function cleanSiteUrl(fallbackOrigin?: string) {
     const publicOrigin = candidates.find(isPublicHttps);
     if (publicOrigin) return publicOrigin;
     throw new Error(
-      "Le paiement PayDunya en production doit être lancé depuis l’adresse HTTPS publique de ZeControl.",
+      "Le paiement en production doit être lancé depuis l’adresse HTTPS publique de ZeControl.",
     );
   }
 
@@ -293,11 +293,13 @@ export async function synchronizePayDunyaPayment(
 
   const confirmation = await confirmPayDunyaCheckout(token);
   if (confirmation.response_code !== "00") {
-    throw new Error("PayDunya ne reconnaît pas encore ce paiement.");
+    throw new Error(
+      "Le paiement n’est pas encore reconnu. Réessayez dans un instant.",
+    );
   }
   if (!verifyPayDunyaHash(confirmation.hash)) {
     throw new Error(
-      "La confirmation PayDunya n’a pas pu être authentifiée.",
+      "La confirmation du paiement n’a pas pu être authentifiée.",
     );
   }
 
