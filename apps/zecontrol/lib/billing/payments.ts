@@ -36,15 +36,48 @@ type PaymentRow = {
 };
 
 function cleanSiteUrl(fallbackOrigin?: string) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  const value = configured || fallbackOrigin || "http://localhost:3001";
-  const url = new URL(value);
-  if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
+  const normalizeOrigin = (value?: string) => {
+    if (!value?.trim()) return null;
+    try {
+      const raw = value.trim();
+      const url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+      return url.origin;
+    } catch {
+      return null;
+    }
+  };
+  const isPublicHttps = (value: string) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    );
+  };
+
+  const requestOrigin = normalizeOrigin(fallbackOrigin);
+  const configuredOrigin = normalizeOrigin(
+    process.env.NEXT_PUBLIC_SITE_URL,
+  );
+  const vercelProductionOrigin = normalizeOrigin(
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  );
+  const vercelDeploymentOrigin = normalizeOrigin(process.env.VERCEL_URL);
+  const candidates = [
+    requestOrigin,
+    configuredOrigin,
+    vercelProductionOrigin,
+    vercelDeploymentOrigin,
+  ].filter((value): value is string => Boolean(value));
+
+  if (process.env.PAYDUNYA_MODE === "production") {
+    const publicOrigin = candidates.find(isPublicHttps);
+    if (publicOrigin) return publicOrigin;
     throw new Error(
-      "NEXT_PUBLIC_SITE_URL doit utiliser HTTPS en production.",
+      "Le paiement PayDunya en production doit être lancé depuis l’adresse HTTPS publique de ZeControl.",
     );
   }
-  return url.origin;
+
+  return candidates[0] ?? "http://localhost:3001";
 }
 
 function assertOwnerAccess(
@@ -128,6 +161,7 @@ export async function createBillingCheckout(input: {
     return { checkoutUrl: reusable.checkout_url, reused: true };
   }
 
+  const siteUrl = cleanSiteUrl(input.fallbackOrigin);
   const internalReference = crypto.randomUUID();
   const { data: payment, error: insertError } = await admin
     .schema("zecontrol")
@@ -155,7 +189,6 @@ export async function createBillingCheckout(input: {
     );
   }
 
-  const siteUrl = cleanSiteUrl(input.fallbackOrigin);
   try {
     const checkout = await createPayDunyaCheckout({
       amount: typedPeriod.amount_due,
@@ -358,4 +391,3 @@ export async function synchronizePayDunyaPayment(
     receiptUrl,
   };
 }
-

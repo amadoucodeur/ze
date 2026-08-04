@@ -126,6 +126,54 @@ button, a { -webkit-tap-highlight-color: transparent; }
     linear-gradient(135deg, #080a0b, #003f5d);
 }
 
+.notification-settings-card {
+  padding: 15px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #dbe5e2;
+  border-radius: 13px;
+  background: #fff;
+}
+.notification-settings-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #087f7b;
+  background: #def5f1;
+}
+.notification-settings-copy { min-width: 0; }
+.notification-settings-copy strong { display: block; font-size: 12px; }
+.notification-settings-copy p { margin: 3px 0 0; color: #718288; font-size: 10px; line-height: 1.45; }
+.notification-settings-copy small { margin-top: 7px; display: flex; align-items: flex-start; gap: 5px; color: #087f7b; font-size: 9px; line-height: 1.4; }
+.notification-settings-copy small svg { flex: 0 0 auto; margin-top: 1px; }
+.notification-settings-card > button {
+  min-height: 34px;
+  padding: 0 13px;
+  grid-column: 2;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #087f7b;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.notification-settings-card > button:disabled { cursor: wait; opacity: .7; }
+.notification-settings-card.is-blocked,
+.notification-settings-card.is-unsupported { background: #fff8f5; border-color: #f1d8d0; }
+.notification-settings-card.is-blocked .notification-settings-icon,
+.notification-settings-card.is-unsupported .notification-settings-icon { color: #a75642; background: #f9e7e1; }
+
 @keyframes pwa-prompt-in {
   from { opacity: 0; transform: translateY(18px) scale(.98); }
 }

@@ -20,6 +20,28 @@ function isSameOrigin(request: Request) {
   }
 }
 
+function requestOrigin(request: Request) {
+  const forwardedProtocol = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  const forwardedHost = request.headers
+    .get("x-forwarded-host")
+    ?.split(",")[0]
+    ?.trim();
+  if (
+    forwardedHost &&
+    (forwardedProtocol === "https" || forwardedProtocol === "http")
+  ) {
+    try {
+      return new URL(`${forwardedProtocol}://${forwardedHost}`).origin;
+    } catch {
+      // Fall through to the URL normalized by Next.js.
+    }
+  }
+  return new URL(request.url).origin;
+}
+
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
     return Response.json(
@@ -59,7 +81,7 @@ export async function POST(request: Request) {
     const result = await createBillingCheckout({
       access,
       periodId: parsed.data.periodId,
-      fallbackOrigin: new URL(request.url).origin,
+      fallbackOrigin: requestOrigin(request),
     });
     return Response.json(result, {
       headers: { "Cache-Control": "no-store" },
@@ -81,4 +103,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

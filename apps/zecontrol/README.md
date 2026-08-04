@@ -1,5 +1,13 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Notifications de rappel
+
+Les rappels sont évalués directement dans la PWA, sans cron ni planificateur
+serveur. Un collaborateur les active depuis **Profil** et peut immédiatement
+envoyer une notification de test. Ils sont affichés tant qu’une page ZeControl
+reste ouverte. Sur iPhone, ZeControl doit d’abord être installé sur l’écran
+d’accueil pour utiliser les notifications système.
+
 ## Getting Started
 
 First, run the development server:

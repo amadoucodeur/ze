@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { KeyRound, ShieldCheck, UserRound } from "lucide-react";
+import { NotificationSettings } from "@/components/pwa/notification-settings";
 import { ProfileSettingsForm } from "@/components/settings/profile-settings-form";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
 
@@ -39,6 +40,7 @@ export default async function ProfileSettingsPage() {
             <div><small>Organisation</small><strong>{access.organisation.name}</strong></div>
           </section>
           <div className="settings-tip"><KeyRound size={18} /><p>Votre rôle et vos droits sont gérés par l’administration de votre organisation.</p></div>
+          {!isOwner && <NotificationSettings />}
         </aside>
       </div>
     </div>

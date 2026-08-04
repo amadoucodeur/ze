@@ -10,6 +10,14 @@ import {
 import { isWorkPolicyDefinition } from "@/lib/work-policy";
 import { dateKey, zonedDayBoundary } from "@/lib/reports/period";
 import { createClient } from "@/lib/supabase/client";
+import {
+  isIosBrowser,
+  isPwaStandalone,
+  REMINDER_ENABLED_KEY,
+  REMINDER_SNOOZE_KEY,
+  setRemindersEnabled as persistRemindersEnabled,
+  showZeControlNotification,
+} from "@/lib/pwa-notifications";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -18,18 +26,14 @@ type InstallPromptEvent = Event & {
 
 const INSTALL_SNOOZE_KEY = "zecontrol-pwa-install-snoozed-until";
 const INSTALL_SNOOZE_DAYS = 30;
-const REMINDER_ENABLED_KEY = "zecontrol-pwa-reminders-enabled";
-const REMINDER_SNOOZE_KEY = "zecontrol-pwa-reminders-snoozed-until";
 const REMINDER_SENT_PREFIX = "zecontrol-pwa-reminder-sent:";
 
 function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches ||
-    Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+  return isPwaStandalone();
 }
 
 function isIosDevice() {
-  return /iphone|ipad|ipod/i.test(window.navigator.userAgent) ||
-    (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
+  return isIosBrowser();
 }
 
 function isInstallSnoozed() {
@@ -309,6 +313,19 @@ export function PwaLifecycle() {
   }, [browserReady, pathname]);
 
   useEffect(() => {
+    const syncReminderState = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+      setRemindersEnabled(Boolean(enabled));
+      if (enabled) {
+        setReminderEligible(false);
+        setReminderDismissed(false);
+      }
+    };
+    window.addEventListener("zecontrol:reminders-changed", syncReminderState);
+    return () => window.removeEventListener("zecontrol:reminders-changed", syncReminderState);
+  }, []);
+
+  useEffect(() => {
     if (
       !remindersEnabled ||
       !online ||
@@ -405,10 +422,9 @@ export function PwaLifecycle() {
 
       const category =
         policyReminder?.key ?? reminderCategory(message, events);
-      const sentKey = `${REMINDER_SENT_PREFIX}${today}:${category}`;
+      const sentKey = `${REMINDER_SENT_PREFIX}${profileId}:${today}:${category}`;
       try {
         if (window.localStorage.getItem(sentKey)) return;
-        window.localStorage.setItem(sentKey, now.toISOString());
       } catch {
         // The service worker tag still prevents visible duplicates.
       }
@@ -420,16 +436,16 @@ export function PwaLifecycle() {
       if (hideTimer) window.clearTimeout(hideTimer);
       hideTimer = window.setTimeout(() => setReminderMessage(null), 12_000);
 
-      if ("serviceWorker" in navigator && Notification.permission === "granted") {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (registration) {
-          await registration.showNotification(message.title, {
-            body: message.message,
-            icon: "/pwa/icon-192.png",
-            badge: "/pwa/icon-192.png",
-            tag: `zecontrol-${today}-${category}`,
-            data: { url: "/dashboard" },
-          });
+      const displayed = await showZeControlNotification(message.title, {
+        body: message.message,
+        tag: `zecontrol-${profileId}-${today}-${category}`,
+        data: { url: "/dashboard" },
+      });
+      if (displayed) {
+        try {
+          window.localStorage.setItem(sentKey, now.toISOString());
+        } catch {
+          // The notification tag still prevents visible duplicates.
         }
       }
     }
@@ -479,27 +495,20 @@ export function PwaLifecycle() {
 
   async function enableReminders() {
     if (!("Notification" in window)) return;
-    const permission = await Notification.requestPermission();
-    setReminderEligible(false);
-    if (permission === "granted") {
-      try {
-        window.localStorage.setItem(REMINDER_ENABLED_KEY, "true");
-      } catch {
-        // The permission remains valid for the current browser session.
+    try {
+      const permission = await Notification.requestPermission();
+      setReminderEligible(false);
+      if (permission === "granted") {
+        persistRemindersEnabled(true);
+        setRemindersEnabled(true);
+        await showZeControlNotification("Rappels activés", {
+          body: "ZeControl vous rappellera l’arrivée, la pause et la reprise au bon moment.",
+          tag: "zecontrol-reminders-enabled",
+          data: { url: "/dashboard" },
+        });
       }
-      setRemindersEnabled(true);
-      if ("serviceWorker" in navigator) {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (registration) {
-          await registration.showNotification("Rappels activés", {
-            body: "ZeControl vous rappellera l’arrivée, la pause, la reprise et le départ au bon moment.",
-            icon: "/pwa/icon-192.png",
-            badge: "/pwa/icon-192.png",
-            tag: "zecontrol-reminders-enabled",
-            data: { url: "/dashboard" },
-          });
-        }
-      }
+    } catch {
+      setReminderEligible(false);
     }
   }
 
@@ -597,7 +606,7 @@ export function PwaLifecycle() {
             <span className="pwa-install-icon"><Bell size={18} /></span>
             <span>
               <strong>Ne plus oublier de pointer</strong>
-              <small>Recevez les rappels d’arrivée, de pause, de reprise et de départ au bon moment.</small>
+              <small>Recevez les rappels d’arrivée, de pause et de reprise au bon moment.</small>
             </span>
             <button className="pwa-install-action" type="button" onClick={() => void enableReminders()}>Activer</button>
             <button className="pwa-install-dismiss" type="button" aria-label="Plus tard" onClick={dismissReminders}><X size={16} /></button>
