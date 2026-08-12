@@ -5,6 +5,7 @@ import {
   Check,
   Clock3,
   CreditCard,
+  Gift,
   ReceiptText,
   ShieldCheck,
   UsersRound,
@@ -29,7 +30,7 @@ const periodStatusLabels = {
   closed: "À régler",
   overdue: "En retard",
   paid: "Payée",
-  void: "Sans facturation",
+  void: "Grâce accordée",
 };
 
 const paymentStatusLabels: Record<string, string> = {
@@ -353,12 +354,20 @@ export default async function BillingPage({
                     )}
                   </strong>
                   <span>{period.billable_user_count}</span>
-                  <span>{formatXof(period.amount_due)} F</span>
+                  <span>
+                    {formatXof(
+                      period.waived_amount ?? period.amount_due,
+                    )} F
+                    {period.status === "void" ? " offerts" : ""}
+                  </span>
                   <span
                     className={`zec-period-status is-${period.status}`}
+                    title={period.waiver_reason ?? undefined}
                   >
                     {period.status === "paid" ? (
                       <Check size={14} />
+                    ) : period.status === "void" ? (
+                      <Gift size={14} />
                     ) : (
                       <Clock3 size={14} />
                     )}
@@ -400,4 +409,3 @@ export default async function BillingPage({
     </div>
   );
 }
-

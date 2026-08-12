@@ -13,6 +13,16 @@ export type BillingPeriod = {
   status: "open" | "closed" | "overdue" | "paid" | "void";
   due_at: string | null;
   paid_at: string | null;
+  waived_amount: number | null;
+  waiver_reason: string | null;
+  waived_at: string | null;
+};
+
+type BillingWaiver = {
+  period_id: string;
+  amount_waived: number;
+  reason: string;
+  granted_at: string;
 };
 
 export type BillingUsage = {
@@ -89,11 +99,40 @@ export async function getBillingOverview(organisationId: string) {
     );
   }
 
-  const periods = (periodsResult.data ?? []) as BillingPeriod[];
+  const periodRows = (periodsResult.data ?? []) as Omit<
+    BillingPeriod,
+    "waived_amount" | "waiver_reason" | "waived_at"
+  >[];
+  let periods: BillingPeriod[] = periodRows.map((period) => ({
+    ...period,
+    waived_amount: null,
+    waiver_reason: null,
+    waived_at: null,
+  }));
   const periodIds = periods.map((period) => period.id);
   let usage: BillingUsage[] = [];
 
   if (periodIds.length) {
+    const { data: waiverRows, error: waiverError } = await admin
+      .schema("zecontrol")
+      .from("billing_waivers")
+      .select("period_id, amount_waived, reason, granted_at")
+      .in("period_id", periodIds);
+    const waiverMap = new Map(
+      ((waiverError ? [] : waiverRows ?? []) as BillingWaiver[]).map(
+        (waiver) => [waiver.period_id, waiver],
+      ),
+    );
+    periods = periods.map((period) => {
+      const waiver = waiverMap.get(period.id);
+      return {
+        ...period,
+        waived_amount: waiver?.amount_waived ?? null,
+        waiver_reason: waiver?.reason ?? null,
+        waived_at: waiver?.granted_at ?? null,
+      };
+    });
+
     const { data: usageRows, error: usageError } = await admin
       .schema("zecontrol")
       .from("billing_usage")
@@ -146,4 +185,3 @@ export async function getBillingOverview(organisationId: string) {
     payments: (paymentsResult.data ?? []) as BillingPayment[],
   };
 }
-

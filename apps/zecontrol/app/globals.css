@@ -5253,7 +5253,7 @@ button.report-day-line:hover { background: #edf8f5; }
 .zec-period-status.is-paid { color: #176d5a; background: #e4f6ee; }
 .zec-period-status.is-closed { color: #725b17; background: #fff3ca; }
 .zec-period-status.is-overdue { color: #98473c; background: #ffe8e3; }
-.zec-period-status.is-void { color: #63767b; background: #edf2f1; }
+.zec-period-status.is-void { color: #176d5a; background: #e4f6ee; }
 .zec-history-empty { padding: 26px; color: #75868a; font-size: 12px; text-align: center; }
 .zec-payment-attempts-note { margin: 0; color: #75868a; font-size: 11px; }
 .billing-return-page {
@@ -6188,7 +6188,11 @@ html.portrait-phone-locked body { overflow: hidden; overscroll-behavior: none; }
   .team-table-heading { padding: 17px 15px; }
   .team-directory-filters { padding: 12px; gap: 8px; }
   .team-directory-filters label { min-height: 46px; }
-  .team-table { overflow: visible; }
+  .team-table {
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+  }
   .team-table-row.team-table-header { display: none; }
   .team-table-row {
     min-width: 0;
