@@ -119,6 +119,12 @@ function durationLabel(minutes: number) {
   return `${Math.floor(safeMinutes / 60)}h ${String(safeMinutes % 60).padStart(2, "0")}`;
 }
 
+function decimalLabel(value: number) {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(1).replace(".", ",");
+}
+
 function balanceLabel(value: number | null | undefined) {
   if (value === null || value === undefined) return "—";
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${durationLabel(Math.abs(value))}`;
@@ -450,22 +456,20 @@ export function PersonalActivityDashboard({
   const expectedDays = days.filter(
     (day) => (day.evaluation?.expectedMinutes ?? 0) > 0,
   );
-  const lateDays = days.filter(
-    (day) => (day.evaluation?.lateMinutes ?? 0) > 0,
-  );
-  const overtimeDays = days.filter(
-    (day) => (day.evaluation?.overtimeMinutes ?? 0) > 0,
-  );
   const totalMinutes = days.reduce((sum, day) => sum + day.minutes, 0);
   const totalExpected = days.reduce(
     (sum, day) => sum + (day.evaluation?.expectedMinutes ?? 0),
     0,
   );
-  const totalLate = lateDays.reduce(
-    (sum, day) => sum + (day.evaluation?.lateMinutes ?? 0),
+  const totalArrivalLate = days.reduce(
+    (sum, day) => sum + (day.evaluation?.arrivalLateMinutes ?? 0),
     0,
   );
-  const totalOvertime = overtimeDays.reduce(
+  const totalBreakOverrun = days.reduce(
+    (sum, day) => sum + (day.evaluation?.breakOverrunMinutes ?? 0),
+    0,
+  );
+  const totalOvertime = days.reduce(
     (sum, day) => sum + (day.evaluation?.overtimeMinutes ?? 0),
     0,
   );
@@ -475,15 +479,21 @@ export function PersonalActivityDashboard({
     0,
   );
   const absences = days.filter((day) => day.isPotentialAbsence).length;
+  const absenceRate = expectedDays.length
+    ? (absences / expectedDays.length) * 100
+    : null;
   const averageMinutes = average(workedDays.map((day) => day.minutes));
-  const averageLate = average(
-    lateDays.map((day) => day.evaluation?.lateMinutes ?? 0),
+  const averageArrivalLate = average(
+    workedDays.map((day) => day.evaluation?.arrivalLateMinutes ?? 0),
+  );
+  const averageBreakOverrun = average(
+    workedDays.map((day) => day.evaluation?.breakOverrunMinutes ?? 0),
   );
   const averagePause = average(
     workedDays.map((day) => day.pauseMinutes),
   );
   const averageOvertime = average(
-    overtimeDays.map((day) => day.evaluation?.overtimeMinutes ?? 0),
+    workedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0),
   );
   const averageStart = averageTime(
     workedDays.map((day) => eventMinuteOfDay(day.first, timeZone)),
@@ -669,12 +679,16 @@ export function PersonalActivityDashboard({
       "Temps travaillé",
       "Temps attendu",
       "Moyenne quotidienne",
-      "Retard total",
-      "Retard moyen",
+      "Cumul retard d’arrivée",
+      "Moyenne retard d’arrivée",
+      "Cumul dépassement de pause",
+      "Moyenne dépassement de pause",
       "Nombre de pauses",
       "Temps de pause",
       "Absences potentielles",
-      "Heures supplémentaires",
+      "Taux moyen d’absence",
+      "Cumul heures supplémentaires",
+      "Moyenne heures supplémentaires",
       "Début moyen",
       "Première pause moyenne",
       "Première reprise moyenne",
@@ -689,12 +703,16 @@ export function PersonalActivityDashboard({
         durationLabel(totalMinutes),
         durationLabel(totalExpected),
         averageMinutes === null ? "—" : durationLabel(averageMinutes),
-        durationLabel(totalLate),
-        averageLate === null ? "—" : durationLabel(averageLate),
+        durationLabel(totalArrivalLate),
+        averageArrivalLate === null ? "—" : durationLabel(averageArrivalLate),
+        durationLabel(totalBreakOverrun),
+        averageBreakOverrun === null ? "—" : durationLabel(averageBreakOverrun),
         String(totalBreaks),
         durationLabel(totalPause),
         String(absences),
+        absenceRate === null ? "—" : `${decimalLabel(absenceRate)} %`,
         durationLabel(totalOvertime),
+        averageOvertime === null ? "—" : durationLabel(averageOvertime),
         minuteOfDayLabel(averageStart),
         minuteOfDayLabel(averageFirstBreak),
         minuteOfDayLabel(averageFirstResume),
@@ -706,6 +724,7 @@ export function PersonalActivityDashboard({
       "Retard à l’arrivée",
       "Dépassement de pause",
       "Retard cumulé",
+      "Heures supplémentaires",
       "Chronologie",
     ];
     const detailRows = days.map((day) => [
@@ -713,6 +732,7 @@ export function PersonalActivityDashboard({
       durationLabel(day.evaluation?.arrivalLateMinutes ?? 0),
       durationLabel(day.evaluation?.breakOverrunMinutes ?? 0),
       durationLabel(day.evaluation?.lateMinutes ?? 0),
+      durationLabel(day.evaluation?.overtimeMinutes ?? 0),
       activeEvents(day.events)
         .map((event) => `${timeOf(event)} ${typeLabels[event.type]}`)
         .join(" · ") || "Aucun pointage",
@@ -814,15 +834,27 @@ export function PersonalActivityDashboard({
             </p>
           </div>
         </article>
-        <article className={totalLate ? "attention" : ""}>
-          <span><Clock3 size={20} /></span>
+        <article className={totalArrivalLate ? "attention" : ""}>
+          <span><LogIn size={20} /></span>
           <div>
-            <small>Retards</small>
-            <strong>{durationLabel(totalLate)}</strong>
+            <small>Cumul des retards d’arrivée</small>
+            <strong>{durationLabel(totalArrivalLate)}</strong>
             <p>
-              {averageLate === null
-                ? "Aucun retard"
-                : `${durationLabel(averageLate)} en moyenne`}
+              {averageArrivalLate === null
+                ? "—"
+                : durationLabel(averageArrivalLate)} en moyenne par journée
+            </p>
+          </div>
+        </article>
+        <article className={totalBreakOverrun ? "attention" : ""}>
+          <span><Coffee size={20} /></span>
+          <div>
+            <small>Cumul des dépassements de pause</small>
+            <strong>{durationLabel(totalBreakOverrun)}</strong>
+            <p>
+              {averageBreakOverrun === null
+                ? "—"
+                : durationLabel(averageBreakOverrun)} en moyenne par journée
             </p>
           </div>
         </article>
@@ -842,20 +874,23 @@ export function PersonalActivityDashboard({
         <article className={absences ? "attention" : ""}>
           <span><CalendarX2 size={20} /></span>
           <div>
-            <small>Absences potentielles</small>
+            <small>Cumul des absences</small>
             <strong>{absences}</strong>
-            <p>Journées prévues sans pointage</p>
+            <p>
+              {absenceRate === null ? "—" : `${decimalLabel(absenceRate)} %`} en
+              moyenne sur les journées attendues
+            </p>
           </div>
         </article>
         <article>
           <span><CalendarDays size={20} /></span>
           <div>
-            <small>Au-delà du prévu</small>
+            <small>Cumul des heures supplémentaires</small>
             <strong>{durationLabel(totalOvertime)}</strong>
             <p>
               {averageOvertime === null
-                ? "Aucun dépassement"
-                : `${durationLabel(averageOvertime)} en moyenne`}
+                ? "—"
+                : durationLabel(averageOvertime)} en moyenne par journée
             </p>
           </div>
         </article>

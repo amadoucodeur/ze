@@ -679,14 +679,19 @@ export function OrganisationReports({
           totalWorked: days.reduce((total, day) => total + day.worked, 0),
           totalExpected: days.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0),
           totalLate: days.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0),
+          totalArrivalLate: days.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0),
+          totalBreakOverrun: days.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0),
           totalPause: days.reduce((total, day) => total + day.pause, 0),
           totalBreaks: days.reduce((total, day) => total + day.breaks, 0),
           totalOvertime: days.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0),
           absences: days.filter((day) => day.isPotentialAbsence).length,
           averageWorked: average(workedDays.map((day) => day.worked)),
           averageLate: average(lateDays.map((day) => day.evaluation?.lateMinutes ?? 0)),
+          averageArrivalLate: average(workedDays.map((day) => day.evaluation?.arrivalLateMinutes ?? 0)),
+          averageBreakOverrun: average(workedDays.map((day) => day.evaluation?.breakOverrunMinutes ?? 0)),
           averagePause: average(workedDays.map((day) => day.pause)),
           averageBreaks: average(workedDays.map((day) => day.breaks)),
+          averageOvertime: average(workedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0)),
           averageBalance: average(balanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0)),
           averageStart: averageTime(workedDays.map((day) => eventMinuteOfDay(day.first, timeZone))),
           averageFirstBreak: averageTime(workedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone))),
@@ -738,18 +743,24 @@ export function OrganisationReports({
   ).length;
   const aggregateDays = filteredDayRows;
   const aggregateWorkedDays = aggregateDays.filter((day) => Boolean(day.first));
-  const aggregateLateDays = aggregateDays.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
-  const aggregateOvertimeDays = aggregateDays.filter((day) => (day.evaluation?.overtimeMinutes ?? 0) > 0);
   const aggregateTotalWorked = aggregateDays.reduce((total, day) => total + day.worked, 0);
   const aggregateTotalExpected = aggregateDays.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0);
-  const aggregateTotalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0);
+  const aggregateTotalArrivalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0);
+  const aggregateTotalBreakOverrun = aggregateDays.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0);
   const aggregateTotalOvertime = aggregateDays.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0);
   const aggregateBreaks = aggregateDays.reduce((total, day) => total + day.breaks, 0);
   const aggregateAbsences = aggregateDays.filter((day) => day.isPotentialAbsence).length;
+  const aggregateExpectedDays = aggregateDays.filter(
+    (day) => (day.evaluation?.expectedMinutes ?? 0) > 0,
+  );
+  const aggregateAbsenceRate = aggregateExpectedDays.length
+    ? (aggregateAbsences / aggregateExpectedDays.length) * 100
+    : null;
   const aggregateAverageWorked = average(aggregateWorkedDays.map((day) => day.worked));
-  const aggregateAverageLate = average(aggregateLateDays.map((day) => day.evaluation?.lateMinutes ?? 0));
+  const aggregateAverageArrivalLate = average(aggregateWorkedDays.map((day) => day.evaluation?.arrivalLateMinutes ?? 0));
+  const aggregateAverageBreakOverrun = average(aggregateWorkedDays.map((day) => day.evaluation?.breakOverrunMinutes ?? 0));
   const aggregateAveragePause = average(aggregateWorkedDays.map((day) => day.pause));
-  const aggregateAverageOvertime = average(aggregateOvertimeDays.map((day) => day.evaluation?.overtimeMinutes ?? 0));
+  const aggregateAverageOvertime = average(aggregateWorkedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0));
   const aggregateAverageStart = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.first, timeZone)));
   const aggregateAverageFirstBreak = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone)));
   const aggregateAverageFirstResume = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone)));
@@ -804,8 +815,30 @@ export function OrganisationReports({
 
   async function handleExport(format: "pdf" | "excel" | "csv", scope: "summary" | "detail" = "summary") {
     const filename = `zecontrol-${scope === "summary" ? "resume" : "detail"}-${start || "tout"}-${end || "tout"}`;
-    const reportSummaryHeaders = visibleColumns.map(summaryColumnLabel);
-    const reportSummaryRows = collaboratorSummaries.map((summary) => visibleColumns.map((column) => summaryCellValue(summary, column)));
+    const reportSummaryHeaders = [
+      ...visibleColumns.map(summaryColumnLabel),
+      "Cumul retard d’arrivée",
+      "Moyenne retard d’arrivée",
+      "Cumul dépassement de pause",
+      "Moyenne dépassement de pause",
+      "Cumul heures supplémentaires",
+      "Moyenne heures supplémentaires",
+      "Cumul absences",
+      "Taux moyen d’absence",
+    ];
+    const reportSummaryRows = collaboratorSummaries.map((summary) => [
+      ...visibleColumns.map((column) => summaryCellValue(summary, column)),
+      durationLabel(summary.totalArrivalLate),
+      summary.averageArrivalLate === null ? "—" : durationLabel(summary.averageArrivalLate),
+      durationLabel(summary.totalBreakOverrun),
+      summary.averageBreakOverrun === null ? "—" : durationLabel(summary.averageBreakOverrun),
+      durationLabel(summary.totalOvertime),
+      summary.averageOvertime === null ? "—" : durationLabel(summary.averageOvertime),
+      String(summary.absences),
+      summary.expectedDays
+        ? `${decimalLabel((summary.absences / summary.expectedDays) * 100)} %`
+        : "—",
+    ]);
     const liveSummaryHeaders = ["Collaborateur", "Identifiant", "Poste", "Service", "État", "Arrivée", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Temps travaillé", "Retard"];
     const liveSummaryRows = orderedDayRows.map((row) => [
       row.profile.fullname,
@@ -824,7 +857,7 @@ export function OrganisationReports({
     ]);
     const summaryHeaders = view === "live" ? liveSummaryHeaders : reportSummaryHeaders;
     const summaryRows = view === "live" ? liveSummaryRows : reportSummaryRows;
-    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard à l’arrivée", "Dépassement de pause", "Retard cumulé", "Solde", "Chronologie"];
+    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard à l’arrivée", "Dépassement de pause", "Retard cumulé", "Heures supplémentaires", "Solde", "Chronologie"];
     const detailRows = orderedDayRows.map((row) => [
       row.profile.fullname,
       new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(`${row.day}T12:00:00`)),
@@ -837,6 +870,7 @@ export function OrganisationReports({
       durationLabel(row.evaluation?.arrivalLateMinutes ?? 0),
       durationLabel(row.evaluation?.breakOverrunMinutes ?? 0),
       durationLabel(row.evaluation?.lateMinutes ?? 0),
+      durationLabel(row.evaluation?.overtimeMinutes ?? 0),
       dayCellValue(row, "balance"),
       row.valid.map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
     ]);
@@ -890,21 +924,30 @@ export function OrganisationReports({
       </div>
 
       {view === "live" ? (
-        <section className="report-kpis live-report-kpis">
-          <article><span><UserCheck size={20} /></span><div><small>En service</small><strong>{workingCount}</strong></div></article>
-          <article><span><Coffee size={20} /></span><div><small>En pause</small><strong>{pausedCount}</strong></div></article>
-          <article className={lateCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>En retard</small><strong>{lateCount}</strong></div></article>
-          <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
-          <article className={absentCount ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absents</small><strong>{absentCount}</strong></div></article>
-        </section>
+        <>
+          <section className="report-kpis live-report-kpis" aria-label="État actuel de l’équipe">
+            <article><span><UserCheck size={20} /></span><div><small>En service</small><strong>{workingCount}</strong></div></article>
+            <article><span><Coffee size={20} /></span><div><small>En pause</small><strong>{pausedCount}</strong></div></article>
+            <article className={lateCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>En retard</small><strong>{lateCount}</strong></div></article>
+            <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
+            <article className={absentCount ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absents</small><strong>{absentCount}</strong></div></article>
+          </section>
+          <section className="live-day-metrics" aria-label="Cumuls de la journée sélectionnée">
+            <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={18} /></span><div><small>Retards d’arrivée cumulés</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne</p></div></article>
+            <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={18} /></span><div><small>Dépassements de pause cumulés</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne</p></div></article>
+            <article><span><Timer size={18} /></span><div><small>Heures supplémentaires cumulées</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne</p></div></article>
+            <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={18} /></span><div><small>Absences cumulées</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} des journées attendues</p></div></article>
+          </section>
+        </>
       ) : (
         <section className="report-summary-grid" aria-label="Synthèse des données filtrées">
           <article className="primary"><span><Timer size={21} /></span><div><small>Temps réalisé</small><strong>{durationLabel(aggregateTotalWorked)} <em>/ {durationLabel(aggregateTotalExpected)}</em></strong><p>{aggregateTotalWorked >= aggregateTotalExpected ? "+" : "−"}{durationLabel(Math.abs(aggregateTotalWorked - aggregateTotalExpected))} sur le temps attendu</p></div></article>
           <article><span><Clock3 size={20} /></span><div><small>Moyenne quotidienne</small><strong>{aggregateAverageWorked === null ? "—" : durationLabel(aggregateAverageWorked)}</strong><p>{aggregateWorkedDays.length} journée{aggregateWorkedDays.length > 1 ? "s" : ""} travaillée{aggregateWorkedDays.length > 1 ? "s" : ""}</p></div></article>
-          <article className={aggregateTotalLate ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>Retards</small><strong>{durationLabel(aggregateTotalLate)}</strong><p>{aggregateAverageLate === null ? "Aucun retard" : `${durationLabel(aggregateAverageLate)} en moyenne · ${aggregateLateDays.length}`}</p></div></article>
+          <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={20} /></span><div><small>Cumul des retards d’arrivée</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne par journée</p></div></article>
+          <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={20} /></span><div><small>Cumul des dépassements de pause</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne par journée</p></div></article>
           <article><span><Coffee size={20} /></span><div><small>Pauses prises</small><strong>{aggregateBreaks}</strong><p>{aggregateAveragePause === null ? "Aucune pause mesurée" : `${durationLabel(aggregateAveragePause)} en moyenne`}</p></div></article>
-          <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absences potentielles</small><strong>{aggregateAbsences}</strong><p>Journées planifiées sans pointage</p></div></article>
-          <article><span><CalendarDays size={20} /></span><div><small>Au-delà du prévu</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "Aucun dépassement" : `${durationLabel(aggregateAverageOvertime)} en moyenne`}</p></div></article>
+          <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Cumul des absences</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} en moyenne sur les journées attendues</p></div></article>
+          <article><span><CalendarDays size={20} /></span><div><small>Cumul des heures supplémentaires</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne par journée</p></div></article>
           <div className="report-average-strip">
             <span><small>Début moyen</small><strong>{minuteOfDayLabel(aggregateAverageStart)}</strong></span>
             <span><small>Première pause</small><strong>{minuteOfDayLabel(aggregateAverageFirstBreak)}</strong></span>
