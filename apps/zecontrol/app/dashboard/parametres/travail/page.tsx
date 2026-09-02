@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Building2, Clock3, ShieldCheck } from "lucide-react";
 import { WorkPolicyConfigurator } from "@/components/settings/work-policy-configurator";
 import { ScopedWorkRules } from "@/components/settings/scoped-work-rules";
+import { NonWorkingDays } from "@/components/settings/non-working-days";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
 
 export const metadata: Metadata = { title: "Cadre de travail" };
@@ -34,6 +35,11 @@ export default async function WorkPolicySettingsPage() {
         <Link className="is-active" href="/dashboard/parametres/travail" aria-current="page"><ShieldCheck size={16} /> Cadre de travail</Link>
       </nav>
       <WorkPolicyConfigurator
+        organisationId={access.organisation.id}
+        profileId={access.profile.id}
+        timeZone={access.organisation.timezone}
+      />
+      <NonWorkingDays
         organisationId={access.organisation.id}
         profileId={access.profile.id}
         timeZone={access.organisation.timezone}

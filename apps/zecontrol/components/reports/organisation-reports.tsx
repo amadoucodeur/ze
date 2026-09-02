@@ -25,21 +25,22 @@ import {
   Search,
   Settings2,
   Timer,
-  UserCheck,
   UsersRound,
   X,
 } from "lucide-react";
 import { AdminMissingEventPanel } from "@/components/clocking/admin-missing-event-panel";
 import { createClient } from "@/lib/supabase/client";
+import { isBalanceEligibleDay } from "@/lib/reports/balances";
 import { LiveDayToolbar } from "./live-day-toolbar";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
-import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
+import { exportCsv, exportExcel, exportExcelWorkbook, exportPdf, exportPdfSections, type ExportCell } from "@/lib/reports/export";
 import { dateKey, defaultPeriodDates, periodLabel, zonedDateTime, zonedDayBoundary, type ReportPeriod } from "@/lib/reports/period";
 import { scheduleForDay } from "@/lib/work-policy";
 import { evaluateWorkday, weekdayForDate } from "@/lib/work-policy-evaluation";
 import {
   resolveReportWorkPolicy,
   type ReportTeamMember,
+  type ReportWorkCalendarException,
   type ReportWorkPolicy,
   type ReportWorkPolicyAssignment,
   type ReportWorkPolicyVersion,
@@ -71,20 +72,35 @@ type ReportProfile = {
   fullname: string;
   identifiant: string;
 };
+type OvertimeApproval = { profile_id: string; work_date: string; status: "approved" | "rejected" };
 
 type ReportColumn =
   | "collaborator"
   | "poste"
   | "service"
   | "days"
+  | "totalWorked"
+  | "averageGlobalWorked"
+  | "totalRegularWorked"
+  | "averageRegularWorked"
   | "start"
   | "firstBreak"
   | "firstResume"
   | "end"
   | "breakCount"
   | "pauseDuration"
+  | "totalPause"
   | "late"
-  | "balance";
+  | "totalLate"
+  | "totalBreakOverrun"
+  | "totalOvertime"
+  | "averageOvertime"
+  | "absences"
+  | "absenceRate"
+  | "totalRegulatoryBalance"
+  | "averageRegulatoryBalance"
+  | "totalGlobalBalance"
+  | "averageGlobalBalance";
 
 const PAGE_SIZE = 50;
 const typeLabels: Record<EventType, string> = {
@@ -105,33 +121,85 @@ const columnOrder: ReportColumn[] = [
   "poste",
   "service",
   "days",
+  "totalWorked",
+  "averageGlobalWorked",
+  "totalRegularWorked",
+  "averageRegularWorked",
   "start",
   "firstBreak",
   "firstResume",
   "end",
   "breakCount",
   "pauseDuration",
+  "totalPause",
   "late",
-  "balance",
+  "totalLate",
+  "totalBreakOverrun",
+  "totalOvertime",
+  "averageOvertime",
+  "absences",
+  "absenceRate",
+  "totalRegulatoryBalance",
+  "averageRegulatoryBalance",
+  "totalGlobalBalance",
+  "averageGlobalBalance",
 ];
 const columnLabels: Record<ReportColumn, string> = {
   collaborator: "Nom complet",
   poste: "Poste",
   service: "Service",
   days: "Journées",
+  totalWorked: "Temps travaillé cumulé / attendu",
+  averageGlobalWorked: "Moyenne globale / attendue",
+  totalRegularWorked: "Temps réglementaire cumulé / attendu",
+  averageRegularWorked: "Moyenne réglementaire / attendue",
   start: "Début de service",
-  firstBreak: "Première pause",
-  firstResume: "Première reprise",
+  firstBreak: "Pause",
+  firstResume: "Reprise",
   end: "Fin de service",
   breakCount: "Nombre de pauses",
   pauseDuration: "Temps de pause",
+  totalPause: "Temps de pause cumulé / attendu",
   late: "Retard",
-  balance: "Solde",
+  totalLate: "Retard cumulé",
+  totalBreakOverrun: "Dépassement de pause cumulé",
+  totalOvertime: "Temps supplémentaire cumulé",
+  averageOvertime: "Temps supplémentaire moyen",
+  absences: "Absences",
+  absenceRate: "Taux d’absence",
+  totalRegulatoryBalance: "Solde réglementaire cumulé",
+  averageRegulatoryBalance: "Solde réglementaire moyen",
+  totalGlobalBalance: "Solde global cumulé",
+  averageGlobalBalance: "Solde global moyen",
 };
-const reportDefaultColumns = [...columnOrder];
+const reportDefaultColumns: ReportColumn[] = [
+  "collaborator",
+  "service",
+  "days",
+  "totalWorked",
+  "averageGlobalWorked",
+  "totalRegularWorked",
+  "averageRegularWorked",
+  "pauseDuration",
+  "totalPause",
+  "totalLate",
+  "totalOvertime",
+  "averageOvertime",
+  "absences",
+  "absenceRate",
+  "totalRegulatoryBalance",
+  "averageRegulatoryBalance",
+  "totalGlobalBalance",
+  "averageGlobalBalance",
+];
 
 function durationLabel(minutes: number) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function durationComparison(actual: number | null, expected: number | null) {
+  if (actual === null || expected === null) return "—";
+  return `${durationLabel(actual)} / ${durationLabel(expected)}`;
 }
 
 function activeEvents(events: ReportEvent[]) {
@@ -255,7 +323,7 @@ function nextDateKey(value: string) {
 function dateKeysBetween(start: string, end: string) {
   const result: string[] = [];
   let current = start;
-  while (current <= end && result.length < 1500) {
+  while (current <= end) {
     result.push(current);
     current = nextDateKey(current);
   }
@@ -282,6 +350,8 @@ export function OrganisationReports({
   const [workPolicyVersions, setWorkPolicyVersions] = useState<ReportWorkPolicyVersion[]>([]);
   const [workPolicyAssignments, setWorkPolicyAssignments] = useState<ReportWorkPolicyAssignment[]>([]);
   const [workTeamMembers, setWorkTeamMembers] = useState<ReportTeamMember[]>([]);
+  const [workCalendarExceptions, setWorkCalendarExceptions] = useState<ReportWorkCalendarException[]>([]);
+  const [overtimeApprovals, setOvertimeApprovals] = useState<OvertimeApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -306,6 +376,7 @@ export function OrganisationReports({
     profileId?: string;
     requestedAt?: string;
   } | null>(null);
+  const [reviewingOvertime, setReviewingOvertime] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -332,27 +403,51 @@ export function OrganisationReports({
 
     async function loadEvents() {
       const collected: ReportEvent[] = [];
-      for (let eventPage = 0; eventPage < 20; eventPage += 1) {
-        const from = eventPage * 1000;
-        let request = supabase
-          .schema("zecontrol")
-          .from("events")
-          .select("id, type, event_status, pointed_at, profile_id, organisation_id")
-          .eq("organisation_id", organisationId)
-          .order("pointed_at", { ascending: false });
-        if (period !== "all" && start) request = request.gte("pointed_at", zonedDayBoundary(start, timeZone).toISOString());
-        if (period !== "all" && end) request = request.lt("pointed_at", zonedDayBoundary(nextDateKey(end), timeZone).toISOString());
-        const result = await request.range(from, from + 999);
+      for (let eventPage = 0; ; eventPage += 1) {
+        const result = await supabase.schema("zecontrol").rpc("list_report_event_days", {
+          target_organisation_id: organisationId,
+          target_profile_id: null,
+          range_start: period === "all" || !start ? null : zonedDayBoundary(start, timeZone).toISOString(),
+          range_end: !end ? null : zonedDayBoundary(nextDateKey(end), timeZone).toISOString(),
+          page_offset: eventPage * 500,
+          page_limit: 500,
+        });
         if (!active) return;
         if (result.error) {
+          // Keep the application usable while a newly deployed RPC migration
+          // is still being applied. The fallback remains bounded by the date
+          // range and paginates without a silent row limit.
+          if (eventPage === 0) {
+            for (let fallbackPage = 0; ; fallbackPage += 1) {
+              const from = fallbackPage * 1000;
+              let request = supabase.schema("zecontrol").from("events")
+                .select("id, type, event_status, pointed_at, profile_id, organisation_id")
+                .eq("organisation_id", organisationId)
+                .order("pointed_at", { ascending: false });
+              if (period !== "all" && start) request = request.gte("pointed_at", zonedDayBoundary(start, timeZone).toISOString());
+              if (end) request = request.lt("pointed_at", zonedDayBoundary(nextDateKey(end), timeZone).toISOString());
+              const fallback = await request.range(from, from + 999);
+              if (!active) return;
+              if (fallback.error) {
+                setError("Les rapports ne sont pas accessibles.");
+                setLoading(false);
+                setRefreshing(false);
+                return;
+              }
+              const fallbackBatch = (fallback.data ?? []) as ReportEvent[];
+              collected.push(...fallbackBatch);
+              if (fallbackBatch.length < 1000) break;
+            }
+            break;
+          }
           setError("Les rapports ne sont pas accessibles.");
           setLoading(false);
           setRefreshing(false);
           return;
         }
-        const batch = (result.data ?? []) as ReportEvent[];
-        collected.push(...batch);
-        if (batch.length < 1000) break;
+        const batch = (result.data ?? []) as { event_data: ReportEvent[] }[];
+        collected.push(...batch.flatMap((day) => day.event_data));
+        if (batch.length < 500) break;
       }
       if (!active) return;
       setEvents(collected);
@@ -362,7 +457,7 @@ export function OrganisationReports({
     }
 
     async function loadWorkPolicies() {
-      const [policiesResult, versionsResult, assignmentsResult, membersResult] =
+      const [policiesResult, versionsResult, assignmentsResult, membersResult, exceptionsResult] =
         await Promise.all([
           supabase
             .schema("zecontrol")
@@ -377,12 +472,17 @@ export function OrganisationReports({
           supabase
             .schema("zecontrol")
             .from("work_policy_assignments")
-            .select("policy_id, target_type, service_name, team_id, profile_id, valid_from, valid_until, priority")
+            .select("policy_id, target_type, service_name, team_id, profile_id, valid_from, valid_until, priority, created_at")
             .eq("organisation_id", organisationId),
           supabase
             .schema("zecontrol")
             .from("work_team_members")
             .select("team_id, profile_id, is_active"),
+          supabase
+            .schema("zecontrol")
+            .from("work_calendar_exceptions")
+            .select("work_date, target_type, service_name, profile_id")
+            .eq("organisation_id", organisationId),
         ]);
       if (!active) return;
       if (policiesResult.error || versionsResult.error) {
@@ -390,6 +490,7 @@ export function OrganisationReports({
         setWorkPolicyVersions([]);
         setWorkPolicyAssignments([]);
         setWorkTeamMembers([]);
+        setWorkCalendarExceptions([]);
         return;
       }
 
@@ -425,9 +526,24 @@ export function OrganisationReports({
           ? []
           : ((membersResult.data ?? []) as ReportTeamMember[]),
       );
+      setWorkCalendarExceptions(
+        exceptionsResult.error
+          ? []
+          : ((exceptionsResult.data ?? []) as ReportWorkCalendarException[]),
+      );
     }
 
-    void Promise.all([loadProfiles(), loadEvents(), loadWorkPolicies()]);
+    async function loadOvertimeApprovals() {
+      let request = supabase.schema("zecontrol").from("overtime_approvals")
+        .select("profile_id, work_date, status")
+        .eq("organisation_id", organisationId);
+      if (period !== "all" && start) request = request.gte("work_date", start);
+      if (end) request = request.lte("work_date", end);
+      const result = await request;
+      if (active && !result.error) setOvertimeApprovals((result.data ?? []) as OvertimeApproval[]);
+    }
+
+    void Promise.all([loadProfiles(), loadEvents(), loadWorkPolicies(), loadOvertimeApprovals()]);
     return () => {
       active = false;
     };
@@ -496,7 +612,6 @@ export function OrganisationReports({
   }
 
   function toggleColumn(column: ReportColumn) {
-    if (column === "collaborator") return;
     setVisibleColumns((columns) => columns.includes(column)
       ? columns.filter((item) => item !== column)
       : columnOrder.filter((item) => item === column || columns.includes(item)));
@@ -529,6 +644,7 @@ export function OrganisationReports({
         versions: workPolicyVersions,
         assignments: workPolicyAssignments,
         teamMembers: workTeamMembers,
+        calendarExceptions: workCalendarExceptions,
       });
     }
 
@@ -554,10 +670,15 @@ export function OrganisationReports({
       }
     }
 
-    if (view === "reports" && start && end) {
+    const earliestActivationDay = profiles
+      .map((profile) => profile.activated_at ? dateKey(new Date(profile.activated_at), timeZone) : null)
+      .filter((value): value is string => Boolean(value))
+      .sort()[0];
+    const effectiveStart = period === "all" ? earliestActivationDay : start;
+    if (view === "reports" && effectiveStart && end) {
       const today = dateKey(new Date(clockTick), timeZone);
       const lastRelevantDay = end < today ? end : today;
-      for (const day of dateKeysBetween(start, lastRelevantDay)) {
+      for (const day of dateKeysBetween(effectiveStart, lastRelevantDay)) {
         for (const profile of profiles) {
           const activationDay = profile.activated_at
             ? dateKey(new Date(profile.activated_at), timeZone)
@@ -567,7 +688,7 @@ export function OrganisationReports({
           const scheduled = definition
             ? scheduleForDay(definition, weekdayForDate(day))
             : null;
-          if (start !== end && !scheduled) continue;
+          if (effectiveStart !== end && !scheduled) continue;
           const key = `${profile.id}:${day}`;
           if (!groups.has(key)) groups.set(key, []);
         }
@@ -594,6 +715,9 @@ export function OrganisationReports({
               date: row.day,
               now: new Date(clockTick),
               timeZone,
+              overtimeReviewStatus: overtimeApprovals.find(
+                (approval) => approval.profile_id === row.profile.id && approval.work_date === row.day,
+              )?.status,
             })
           : null;
         const first = valid.find((event) => event.type === "start");
@@ -607,8 +731,12 @@ export function OrganisationReports({
           firstBreak,
           firstResume,
           end: endEvent,
-          worked: workedMinutes(metricEvents, clockTick, timeZone),
-          pause: pauseMinutes(metricEvents, clockTick, timeZone),
+          worked:
+            evaluation?.workedMinutes ??
+            workedMinutes(metricEvents, clockTick, timeZone),
+          pause:
+            evaluation?.pauseMinutes ??
+            pauseMinutes(metricEvents, clockTick, timeZone),
           breaks: breakCount(metricEvents),
           isPotentialAbsence:
             row.day < dateKey(new Date(clockTick), timeZone) &&
@@ -620,7 +748,7 @@ export function OrganisationReports({
         };
       })
       .sort((a, b) => b.day.localeCompare(a.day) || a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
-  }, [clockTick, end, events, period, profiles, start, timeZone, view, workPolicies, workPolicyAssignments, workPolicyVersions, workTeamMembers]);
+  }, [clockTick, end, events, overtimeApprovals, period, profiles, start, timeZone, view, workCalendarExceptions, workPolicies, workPolicyAssignments, workPolicyVersions, workTeamMembers]);
 
   const services = [...new Set(profiles.map((profile) => profile.service).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, "fr"));
   const normalizedQuery = query.trim().toLocaleLowerCase("fr");
@@ -670,7 +798,10 @@ export function OrganisationReports({
         const workedDays = days.filter((day) => Boolean(day.first));
         const expectedDays = days.filter((day) => (day.evaluation?.expectedMinutes ?? 0) > 0);
         const lateDays = days.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
-        const balanceDays = days.filter((day) => day.evaluation && day.end);
+        const balanceDays = days.filter(isBalanceEligibleDay);
+        const comparableDays = days.filter(
+          (day) => day.worked > 0 || (day.evaluation?.expectedMinutes ?? 0) > 0,
+        );
         return {
           profile,
           days,
@@ -678,25 +809,63 @@ export function OrganisationReports({
           expectedDays: expectedDays.length,
           totalWorked: days.reduce((total, day) => total + day.worked, 0),
           totalExpected: days.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0),
+          totalRegularWorked: days.reduce(
+            (total, day) => total + Math.min(day.worked, day.evaluation?.expectedMinutes ?? 0),
+            0,
+          ),
           totalLate: days.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0),
           totalArrivalLate: days.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0),
           totalBreakOverrun: days.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0),
           totalPause: days.reduce((total, day) => total + day.pause, 0),
+          totalPauseExpected: expectedDays.reduce(
+            (total, day) => total + (day.evaluation?.schedule?.breakMinutes ?? 0),
+            0,
+          ),
           totalBreaks: days.reduce((total, day) => total + day.breaks, 0),
           totalOvertime: days.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0),
+          totalGlobalBalance: balanceDays.reduce(
+            (total, day) => total + (day.evaluation?.differenceMinutes ?? 0),
+            0,
+          ),
+          totalRegulatoryBalance: balanceDays.reduce(
+            (total, day) => total + Math.min(day.evaluation?.differenceMinutes ?? 0, 0),
+            0,
+          ),
           absences: days.filter((day) => day.isPotentialAbsence).length,
-          averageWorked: average(workedDays.map((day) => day.worked)),
+          averageGlobalWorked: average(comparableDays.map((day) => day.worked)),
+          averageExpected: average(comparableDays.map((day) => day.evaluation?.expectedMinutes ?? 0)),
+          averageRegularWorked: average(
+            comparableDays.map((day) => Math.min(day.worked, day.evaluation?.expectedMinutes ?? 0)),
+          ),
           averageLate: average(lateDays.map((day) => day.evaluation?.lateMinutes ?? 0)),
           averageArrivalLate: average(workedDays.map((day) => day.evaluation?.arrivalLateMinutes ?? 0)),
           averageBreakOverrun: average(workedDays.map((day) => day.evaluation?.breakOverrunMinutes ?? 0)),
           averagePause: average(workedDays.map((day) => day.pause)),
+          averagePauseExpected: average(
+            workedDays.map((day) => day.evaluation?.schedule?.breakMinutes ?? 0),
+          ),
           averageBreaks: average(workedDays.map((day) => day.breaks)),
           averageOvertime: average(workedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0)),
-          averageBalance: average(balanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0)),
+          averageGlobalBalance: average(balanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0)),
+          averageRegulatoryBalance: average(
+            balanceDays.map((day) => Math.min(day.evaluation?.differenceMinutes ?? 0, 0)),
+          ),
           averageStart: averageTime(workedDays.map((day) => eventMinuteOfDay(day.first, timeZone))),
           averageFirstBreak: averageTime(workedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone))),
           averageFirstResume: averageTime(workedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone))),
-          averageEnd: averageTime(workedDays.map((day) => eventMinuteOfDay(day.end, timeZone))),
+          averageEnd: averageTime(workedDays.map((day) => {
+            if (day.end) return eventMinuteOfDay(day.end, timeZone);
+            if (day.evaluation?.automaticClosure === "scheduled_end") {
+              const [hours, minutes] = (day.evaluation.schedule?.endTime ?? "").split(":").map(Number);
+              return Number.isFinite(hours) && Number.isFinite(minutes)
+                ? hours * 60 + minutes
+                : null;
+            }
+            if (day.evaluation?.automaticClosure === "break_start") {
+              return eventMinuteOfDay(day.valid.at(-1), timeZone);
+            }
+            return null;
+          })),
         };
       })
       .filter((summary) => status === "all" || summary.days.length > 0)
@@ -731,6 +900,24 @@ export function OrganisationReports({
   });
   const displayedDayRows = orderedDayRows.slice((liveCurrentPage - 1) * PAGE_SIZE, liveCurrentPage * PAGE_SIZE);
   const selectedRow = selectedRowKey ? rows.find((row) => row.key === selectedRowKey) ?? null : null;
+  async function reviewOvertime(decision: "approved" | "rejected") {
+    if (!selectedRow || reviewingOvertime) return;
+    setReviewingOvertime(true);
+    const result = await supabase.schema("zecontrol").rpc("review_overtime", {
+      target_profile_id: selectedRow.profile.id,
+      target_work_date: selectedRow.day,
+      review_status: decision,
+    });
+    if (!result.error) {
+      setOvertimeApprovals((current) => [
+        { profile_id: selectedRow.profile.id, work_date: selectedRow.day, status: decision },
+        ...current.filter((approval) => approval.profile_id !== selectedRow.profile.id || approval.work_date !== selectedRow.day),
+      ]);
+    } else {
+      setError("La validation du temps supplémentaire n’a pas pu être enregistrée.");
+    }
+    setReviewingOvertime(false);
+  }
   const selectedProfile = selectedProfileId
     ? profiles.find((profile) => profile.id === selectedProfileId) ?? null
     : null;
@@ -745,6 +932,12 @@ export function OrganisationReports({
   const aggregateWorkedDays = aggregateDays.filter((day) => Boolean(day.first));
   const aggregateTotalWorked = aggregateDays.reduce((total, day) => total + day.worked, 0);
   const aggregateTotalExpected = aggregateDays.reduce((total, day) => total + (day.evaluation?.expectedMinutes ?? 0), 0);
+  const aggregateTotalRegularWorked = aggregateDays.reduce(
+    (total, day) => total + Math.min(day.worked, day.evaluation?.expectedMinutes ?? 0),
+    0,
+  );
+  const aggregateTotalPause = aggregateDays.reduce((total, day) => total + day.pause, 0);
+  const aggregateTotalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0);
   const aggregateTotalArrivalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0);
   const aggregateTotalBreakOverrun = aggregateDays.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0);
   const aggregateTotalOvertime = aggregateDays.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0);
@@ -753,14 +946,46 @@ export function OrganisationReports({
   const aggregateExpectedDays = aggregateDays.filter(
     (day) => (day.evaluation?.expectedMinutes ?? 0) > 0,
   );
+  const aggregateComparableDays = aggregateDays.filter(
+    (day) => day.worked > 0 || (day.evaluation?.expectedMinutes ?? 0) > 0,
+  );
+  const aggregateTotalPauseExpected = aggregateExpectedDays.reduce(
+    (total, day) => total + (day.evaluation?.schedule?.breakMinutes ?? 0),
+    0,
+  );
   const aggregateAbsenceRate = aggregateExpectedDays.length
     ? (aggregateAbsences / aggregateExpectedDays.length) * 100
     : null;
-  const aggregateAverageWorked = average(aggregateWorkedDays.map((day) => day.worked));
+  const aggregateAverageGlobalWorked = average(aggregateComparableDays.map((day) => day.worked));
+  const aggregateAverageExpected = average(
+    aggregateComparableDays.map((day) => day.evaluation?.expectedMinutes ?? 0),
+  );
+  const aggregateAverageRegularWorked = average(
+    aggregateComparableDays.map((day) => Math.min(day.worked, day.evaluation?.expectedMinutes ?? 0)),
+  );
+  const aggregateLateDays = aggregateWorkedDays.filter((day) => (day.evaluation?.lateMinutes ?? 0) > 0);
+  const aggregateAverageLate = average(aggregateLateDays.map((day) => day.evaluation?.lateMinutes ?? 0));
   const aggregateAverageArrivalLate = average(aggregateWorkedDays.map((day) => day.evaluation?.arrivalLateMinutes ?? 0));
   const aggregateAverageBreakOverrun = average(aggregateWorkedDays.map((day) => day.evaluation?.breakOverrunMinutes ?? 0));
   const aggregateAveragePause = average(aggregateWorkedDays.map((day) => day.pause));
+  const aggregateAveragePauseExpected = average(
+    aggregateWorkedDays.map((day) => day.evaluation?.schedule?.breakMinutes ?? 0),
+  );
+  const aggregateAverageBreaks = average(aggregateWorkedDays.map((day) => day.breaks));
   const aggregateAverageOvertime = average(aggregateWorkedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0));
+  const aggregateBalanceDays = aggregateDays.filter((day) => day.evaluation && (day.end || day.evaluation.automaticClosure !== "none"));
+  const aggregateTotalGlobalBalance = aggregateBalanceDays.reduce(
+    (total, day) => total + (day.evaluation?.differenceMinutes ?? 0),
+    0,
+  );
+  const aggregateTotalRegulatoryBalance = aggregateBalanceDays.reduce(
+    (total, day) => total + Math.min(day.evaluation?.differenceMinutes ?? 0, 0),
+    0,
+  );
+  const aggregateAverageGlobalBalance = average(aggregateBalanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0));
+  const aggregateAverageRegulatoryBalance = average(
+    aggregateBalanceDays.map((day) => Math.min(day.evaluation?.differenceMinutes ?? 0, 0)),
+  );
   const aggregateAverageStart = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.first, timeZone)));
   const aggregateAverageFirstBreak = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstBreak, timeZone)));
   const aggregateAverageFirstResume = averageTime(aggregateWorkedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone)));
@@ -771,31 +996,100 @@ export function OrganisationReports({
     return `${value > 0 ? "+" : value < 0 ? "−" : ""}${durationLabel(Math.abs(value))}`;
   }
 
+  function effectiveEndLabel(row: (typeof rows)[number] | undefined) {
+    if (!row) return "—";
+    if (row.end) return timeLabel(row.end, timeZone);
+    if (row.evaluation?.automaticClosure === "scheduled_end") {
+      return `${row.evaluation.schedule?.endTime ?? "—"} · auto`;
+    }
+    if (row.evaluation?.automaticClosure === "break_start") {
+      return `${timeLabel(row.valid.at(-1), timeZone)} · auto`;
+    }
+    return "—";
+  }
+
   function summaryCellValue(summary: (typeof collaboratorSummaries)[number], column: ReportColumn) {
     const day = summary.days[0];
     if (column === "collaborator") return summary.profile.fullname;
     if (column === "poste") return summary.profile.poste || "—";
     if (column === "service") return summary.profile.service || "—";
     if (column === "days") return isSingleDay ? (day?.first ? "1" : "0") : `${summary.workedDays}/${summary.expectedDays || summary.days.length}`;
+    if (column === "totalWorked") return durationComparison(summary.totalWorked, summary.totalExpected);
+    if (column === "averageGlobalWorked") return durationComparison(summary.averageGlobalWorked, summary.averageExpected);
+    if (column === "totalRegularWorked") return durationComparison(summary.totalRegularWorked, summary.totalExpected);
+    if (column === "averageRegularWorked") return durationComparison(summary.averageRegularWorked, summary.averageExpected);
     if (column === "start") return isSingleDay ? timeLabel(day?.first, timeZone) : minuteOfDayLabel(summary.averageStart);
     if (column === "firstBreak") return isSingleDay ? timeLabel(day?.firstBreak, timeZone) : minuteOfDayLabel(summary.averageFirstBreak);
     if (column === "firstResume") return isSingleDay ? timeLabel(day?.firstResume, timeZone) : minuteOfDayLabel(summary.averageFirstResume);
-    if (column === "end") return isSingleDay ? timeLabel(day?.end, timeZone) : minuteOfDayLabel(summary.averageEnd);
+    if (column === "end") return isSingleDay ? effectiveEndLabel(day) : minuteOfDayLabel(summary.averageEnd);
     if (column === "breakCount") return isSingleDay ? String(day?.breaks ?? 0) : decimalLabel(summary.averageBreaks);
-    if (column === "pauseDuration") return isSingleDay ? durationLabel(day?.pause ?? 0) : summary.averagePause === null ? "—" : durationLabel(summary.averagePause);
+    if (column === "pauseDuration") return isSingleDay
+      ? durationComparison(day?.pause ?? 0, day?.evaluation?.schedule?.breakMinutes ?? 0)
+      : durationComparison(summary.averagePause, summary.averagePauseExpected);
+    if (column === "totalPause") return durationComparison(summary.totalPause, summary.totalPauseExpected);
     if (column === "late") return isSingleDay ? balanceLabel(day?.evaluation?.lateMinutes || null) : summary.averageLate === null ? "—" : durationLabel(summary.averageLate);
-    return isSingleDay ? balanceLabel(day?.evaluation?.differenceMinutes) : balanceLabel(summary.averageBalance);
+    if (column === "totalLate") return durationLabel(summary.totalLate);
+    if (column === "totalBreakOverrun") return durationLabel(summary.totalBreakOverrun);
+    if (column === "totalOvertime") return durationLabel(summary.totalOvertime);
+    if (column === "averageOvertime") return summary.averageOvertime === null ? "—" : durationLabel(summary.averageOvertime);
+    if (column === "absences") return String(summary.absences);
+    if (column === "absenceRate") return summary.expectedDays ? `${decimalLabel((summary.absences / summary.expectedDays) * 100)} %` : "—";
+    if (column === "totalRegulatoryBalance") return balanceLabel(summary.totalRegulatoryBalance);
+    if (column === "averageRegulatoryBalance") return balanceLabel(summary.averageRegulatoryBalance);
+    if (column === "totalGlobalBalance") return balanceLabel(summary.totalGlobalBalance);
+    return balanceLabel(summary.averageGlobalBalance);
+  }
+
+  function aggregateCellValue(column: ReportColumn) {
+    if (column === "collaborator") return "Synthèse";
+    if (column === "poste") {
+      const count = new Set(collaboratorSummaries.map((summary) => summary.profile.poste).filter(Boolean)).size;
+      return `${count} poste${count > 1 ? "s" : ""}`;
+    }
+    if (column === "service") {
+      const count = new Set(collaboratorSummaries.map((summary) => summary.profile.service).filter(Boolean)).size;
+      return `${count} service${count > 1 ? "s" : ""}`;
+    }
+    if (column === "days") return `${aggregateWorkedDays.length}/${aggregateExpectedDays.length}`;
+    if (column === "totalWorked") return durationComparison(aggregateTotalWorked, aggregateTotalExpected);
+    if (column === "averageGlobalWorked") return durationComparison(aggregateAverageGlobalWorked, aggregateAverageExpected);
+    if (column === "totalRegularWorked") return durationComparison(aggregateTotalRegularWorked, aggregateTotalExpected);
+    if (column === "averageRegularWorked") return durationComparison(aggregateAverageRegularWorked, aggregateAverageExpected);
+    if (column === "start") return minuteOfDayLabel(aggregateAverageStart);
+    if (column === "firstBreak") return minuteOfDayLabel(aggregateAverageFirstBreak);
+    if (column === "firstResume") return minuteOfDayLabel(aggregateAverageFirstResume);
+    if (column === "end") return minuteOfDayLabel(aggregateAverageEnd);
+    if (column === "breakCount") return decimalLabel(aggregateAverageBreaks);
+    if (column === "pauseDuration") return durationComparison(aggregateAveragePause, aggregateAveragePauseExpected);
+    if (column === "totalPause") return durationComparison(aggregateTotalPause, aggregateTotalPauseExpected);
+    if (column === "late") return aggregateAverageLate === null ? "—" : durationLabel(aggregateAverageLate);
+    if (column === "totalLate") return durationLabel(aggregateTotalLate);
+    if (column === "totalBreakOverrun") return durationLabel(aggregateTotalBreakOverrun);
+    if (column === "totalOvertime") return durationLabel(aggregateTotalOvertime);
+    if (column === "averageOvertime") return aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime);
+    if (column === "absences") return String(aggregateAbsences);
+    if (column === "absenceRate") return aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`;
+    if (column === "totalRegulatoryBalance") return balanceLabel(aggregateTotalRegulatoryBalance);
+    if (column === "averageRegulatoryBalance") return balanceLabel(aggregateAverageRegulatoryBalance);
+    if (column === "totalGlobalBalance") return balanceLabel(aggregateTotalGlobalBalance);
+    return balanceLabel(aggregateAverageGlobalBalance);
   }
 
   function dayCellValue(row: (typeof rows)[number], column: Exclude<ReportColumn, "collaborator" | "poste" | "service" | "days">) {
     if (column === "start") return timeLabel(row.first, timeZone);
     if (column === "firstBreak") return timeLabel(row.firstBreak, timeZone);
     if (column === "firstResume") return timeLabel(row.firstResume, timeZone);
-    if (column === "end") return timeLabel(row.end, timeZone);
+    if (column === "end") return effectiveEndLabel(row);
     if (column === "breakCount") return String(row.breaks);
     if (column === "pauseDuration") return durationLabel(row.pause);
     if (column === "late") return row.evaluation?.lateMinutes ? durationLabel(row.evaluation.lateMinutes) : "—";
-    return balanceLabel(row.evaluation?.differenceMinutes);
+    if (column === "totalRegulatoryBalance" || column === "averageRegulatoryBalance") {
+      return balanceLabel(row.evaluation ? Math.min(row.evaluation.differenceMinutes, 0) : null);
+    }
+    if (column === "totalGlobalBalance" || column === "averageGlobalBalance") {
+      return balanceLabel(row.evaluation?.differenceMinutes);
+    }
+    return "—";
   }
 
   function summaryColumnLabel(column: ReportColumn) {
@@ -803,43 +1097,23 @@ export function OrganisationReports({
     return ({
       ...columnLabels,
       start: "Début moyen",
-      firstBreak: "Première pause moyenne",
-      firstResume: "Première reprise moyenne",
+      firstBreak: "Pause moyenne",
+      firstResume: "Reprise moyenne",
       end: "Fin moyenne",
       breakCount: "Nombre moyen de pauses",
-      pauseDuration: "Temps de pause moyen",
-      late: "Retard moyen",
-      balance: "Solde moyen",
+      pauseDuration: "Temps de pause moyen / attendu",
+      late: "Retard moyen journalier",
     })[column];
   }
 
   async function handleExport(format: "pdf" | "excel" | "csv", scope: "summary" | "detail" = "summary") {
     const filename = `zecontrol-${scope === "summary" ? "resume" : "detail"}-${start || "tout"}-${end || "tout"}`;
-    const reportSummaryHeaders = [
-      ...visibleColumns.map(summaryColumnLabel),
-      "Cumul retard d’arrivée",
-      "Moyenne retard d’arrivée",
-      "Cumul dépassement de pause",
-      "Moyenne dépassement de pause",
-      "Cumul heures supplémentaires",
-      "Moyenne heures supplémentaires",
-      "Cumul absences",
-      "Taux moyen d’absence",
+    const reportSummaryHeaders = visibleColumns.map(summaryColumnLabel);
+    const reportSummaryRows = [
+      visibleColumns.map(aggregateCellValue),
+      ...collaboratorSummaries.map((summary) => visibleColumns.map((column) => summaryCellValue(summary, column))),
     ];
-    const reportSummaryRows = collaboratorSummaries.map((summary) => [
-      ...visibleColumns.map((column) => summaryCellValue(summary, column)),
-      durationLabel(summary.totalArrivalLate),
-      summary.averageArrivalLate === null ? "—" : durationLabel(summary.averageArrivalLate),
-      durationLabel(summary.totalBreakOverrun),
-      summary.averageBreakOverrun === null ? "—" : durationLabel(summary.averageBreakOverrun),
-      durationLabel(summary.totalOvertime),
-      summary.averageOvertime === null ? "—" : durationLabel(summary.averageOvertime),
-      String(summary.absences),
-      summary.expectedDays
-        ? `${decimalLabel((summary.absences / summary.expectedDays) * 100)} %`
-        : "—",
-    ]);
-    const liveSummaryHeaders = ["Collaborateur", "Identifiant", "Poste", "Service", "État", "Arrivée", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Temps travaillé", "Retard"];
+    const liveSummaryHeaders = ["Collaborateur", "Identifiant", "Poste", "Service", "État", "Arrivée", "Pause", "Reprise", "Fin", "Nombre de pauses", "Temps de pause", "Temps travaillé", "Retard"];
     const liveSummaryRows = orderedDayRows.map((row) => [
       row.profile.fullname,
       row.profile.identifiant,
@@ -857,9 +1131,8 @@ export function OrganisationReports({
     ]);
     const summaryHeaders = view === "live" ? liveSummaryHeaders : reportSummaryHeaders;
     const summaryRows = view === "live" ? liveSummaryRows : reportSummaryRows;
-    const detailHeaders = ["Collaborateur", "Journée", "Début", "Première pause", "Première reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard à l’arrivée", "Dépassement de pause", "Retard cumulé", "Heures supplémentaires", "Solde", "Chronologie"];
-    const detailRows = orderedDayRows.map((row) => [
-      row.profile.fullname,
+    const detailHeaders = ["Collaborateur", "Journée", "Début", "Pause", "Reprise", "Fin", "Nombre de pauses", "Temps de pause", "Retard de début de service", "Dépassement de pause", "Temps supplémentaire", "Solde réglementaire", "Solde global", "Clôture", "Pénalité de clôture", "Chronologie"];
+    const detailCells = (row: (typeof rows)[number]): ExportCell[] => [
       new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(`${row.day}T12:00:00`)),
       dayCellValue(row, "start"),
       dayCellValue(row, "firstBreak"),
@@ -869,16 +1142,45 @@ export function OrganisationReports({
       dayCellValue(row, "pauseDuration"),
       durationLabel(row.evaluation?.arrivalLateMinutes ?? 0),
       durationLabel(row.evaluation?.breakOverrunMinutes ?? 0),
-      durationLabel(row.evaluation?.lateMinutes ?? 0),
       durationLabel(row.evaluation?.overtimeMinutes ?? 0),
-      dayCellValue(row, "balance"),
+      dayCellValue(row, "averageRegulatoryBalance"),
+      dayCellValue(row, "averageGlobalBalance"),
+      row.evaluation?.automaticClosure === "break_start"
+        ? "Automatique au début de la pause"
+        : row.evaluation?.automaticClosure === "scheduled_end"
+          ? "Automatique à la fin prévue"
+          : "Normale",
+      row.evaluation?.automaticClosurePenaltyMinutes
+        ? durationLabel(row.evaluation.automaticClosurePenaltyMinutes)
+        : "—",
       row.valid.map((event) => `${timeLabel(event, timeZone)} ${typeLabels[event.type]}`).join(" · ") || "Aucun pointage",
-    ]);
+    ];
+    const detailRows = orderedDayRows.map((row) => [row.profile.fullname, ...detailCells(row)]);
     const headers = scope === "summary" ? summaryHeaders : detailHeaders;
     const exportRows = scope === "summary" ? summaryRows : detailRows;
     if (format === "csv") exportCsv(filename, headers, exportRows);
-    if (format === "excel") await exportExcel(filename, `${scope === "summary" ? "Résumé" : "Détail"} · ${organisationName}`, headers, exportRows);
-    if (format === "pdf") await exportPdf(filename, `${scope === "summary" ? "Résumé" : "Détail"} · ${organisationName}`, `${rangeLabel} · ${timeZone}`, headers, exportRows);
+    if (format === "excel" && scope === "summary") {
+      await exportExcel(filename, `Résumé · ${organisationName}`, headers, exportRows);
+    }
+    if (format === "excel" && scope === "detail") {
+      await exportExcelWorkbook(filename, collaboratorSummaries.map((summary) => ({
+        name: summary.profile.fullname,
+        title: `${summary.profile.fullname} · ${rangeLabel}`,
+        headers: detailHeaders.slice(1),
+        rows: summary.days.map(detailCells),
+      })));
+    }
+    if (format === "pdf" && scope === "summary") {
+      await exportPdf(filename, `Résumé · ${organisationName}`, `${rangeLabel} · ${timeZone}`, headers, exportRows);
+    }
+    if (format === "pdf" && scope === "detail") {
+      await exportPdfSections(filename, collaboratorSummaries.map((summary) => ({
+        title: `Détail · ${summary.profile.fullname}`,
+        subtitle: `${organisationName} · ${rangeLabel} · ${timeZone}`,
+        headers: detailHeaders.slice(1),
+        rows: summary.days.map(detailCells),
+      })));
+    }
   }
 
   if (loading) return <div className="settings-loading"><LoaderCircle className="spin" size={22} /> Chargement des rapports...</div>;
@@ -924,34 +1226,29 @@ export function OrganisationReports({
       </div>
 
       {view === "live" ? (
-        <>
-          <section className="report-kpis live-report-kpis" aria-label="État actuel de l’équipe">
-            <article><span><UserCheck size={20} /></span><div><small>En service</small><strong>{workingCount}</strong></div></article>
-            <article><span><Coffee size={20} /></span><div><small>En pause</small><strong>{pausedCount}</strong></div></article>
-            <article className={lateCount ? "attention" : ""}><span><Clock3 size={20} /></span><div><small>En retard</small><strong>{lateCount}</strong></div></article>
-            <article><span><Check size={20} /></span><div><small>Journée terminée</small><strong>{completedDays}</strong></div></article>
-            <article className={absentCount ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Absents</small><strong>{absentCount}</strong></div></article>
-          </section>
-          <section className="live-day-metrics" aria-label="Cumuls de la journée sélectionnée">
-            <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={18} /></span><div><small>Retards d’arrivée cumulés</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne</p></div></article>
-            <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={18} /></span><div><small>Dépassements de pause cumulés</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne</p></div></article>
-            <article><span><Timer size={18} /></span><div><small>Heures supplémentaires cumulées</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne</p></div></article>
-            <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={18} /></span><div><small>Absences cumulées</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} des journées attendues</p></div></article>
-          </section>
-        </>
+        <section className="live-day-metrics" aria-label="Cumuls de la journée sélectionnée">
+          <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={18} /></span><div><small>Retards d’arrivée cumulés</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne</p></div></article>
+          <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={18} /></span><div><small>Dépassements de pause cumulés</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne</p></div></article>
+          <article><span><Timer size={18} /></span><div><small>Temps supplémentaire cumulé</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne</p></div></article>
+          <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={18} /></span><div><small>Absences cumulées</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} des journées attendues</p></div></article>
+        </section>
       ) : (
         <section className="report-summary-grid" aria-label="Synthèse des données filtrées">
-          <article className="primary"><span><Timer size={21} /></span><div><small>Temps réalisé</small><strong>{durationLabel(aggregateTotalWorked)} <em>/ {durationLabel(aggregateTotalExpected)}</em></strong><p>{aggregateTotalWorked >= aggregateTotalExpected ? "+" : "−"}{durationLabel(Math.abs(aggregateTotalWorked - aggregateTotalExpected))} sur le temps attendu</p></div></article>
-          <article><span><Clock3 size={20} /></span><div><small>Moyenne quotidienne</small><strong>{aggregateAverageWorked === null ? "—" : durationLabel(aggregateAverageWorked)}</strong><p>{aggregateWorkedDays.length} journée{aggregateWorkedDays.length > 1 ? "s" : ""} travaillée{aggregateWorkedDays.length > 1 ? "s" : ""}</p></div></article>
+          <article className="primary"><span><Timer size={21} /></span><div><small>Temps global travaillé / attendu</small><strong>{durationLabel(aggregateTotalWorked)} <em>/ {durationLabel(aggregateTotalExpected)}</em></strong><p>{aggregateTotalWorked >= aggregateTotalExpected ? "+" : "−"}{durationLabel(Math.abs(aggregateTotalWorked - aggregateTotalExpected))} sur le temps attendu</p></div></article>
+          <article><span><Clock3 size={20} /></span><div><small>Moyenne globale / attendue</small><strong>{durationComparison(aggregateAverageGlobalWorked, aggregateAverageExpected)}</strong><p>{aggregateComparableDays.length} journée{aggregateComparableDays.length > 1 ? "s" : ""} comparée{aggregateComparableDays.length > 1 ? "s" : ""}</p></div></article>
+          <article><span><Timer size={20} /></span><div><small>Temps réglementaire / attendu</small><strong>{durationComparison(aggregateTotalRegularWorked, aggregateTotalExpected)}</strong><p>Hors temps réalisé au-delà de l’attendu</p></div></article>
+          <article><span><Clock3 size={20} /></span><div><small>Moyenne réglementaire / attendue</small><strong>{durationComparison(aggregateAverageRegularWorked, aggregateAverageExpected)}</strong><p>Moyenne plafonnée au temps réglementaire</p></div></article>
           <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={20} /></span><div><small>Cumul des retards d’arrivée</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne par journée</p></div></article>
           <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={20} /></span><div><small>Cumul des dépassements de pause</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne par journée</p></div></article>
           <article><span><Coffee size={20} /></span><div><small>Pauses prises</small><strong>{aggregateBreaks}</strong><p>{aggregateAveragePause === null ? "Aucune pause mesurée" : `${durationLabel(aggregateAveragePause)} en moyenne`}</p></div></article>
           <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Cumul des absences</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} en moyenne sur les journées attendues</p></div></article>
-          <article><span><CalendarDays size={20} /></span><div><small>Cumul des heures supplémentaires</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne par journée</p></div></article>
+          <article><span><CalendarDays size={20} /></span><div><small>Cumul du temps supplémentaire</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne par journée</p></div></article>
+          <article><span><Clock3 size={20} /></span><div><small>Solde réglementaire cumulé</small><strong>{balanceLabel(aggregateTotalRegulatoryBalance)}</strong><p>{balanceLabel(aggregateAverageRegulatoryBalance)} en moyenne par journée clôturée</p></div></article>
+          <article><span><Timer size={20} /></span><div><small>Solde global cumulé</small><strong>{balanceLabel(aggregateTotalGlobalBalance)}</strong><p>{balanceLabel(aggregateAverageGlobalBalance)} en moyenne par journée clôturée</p></div></article>
           <div className="report-average-strip">
             <span><small>Début moyen</small><strong>{minuteOfDayLabel(aggregateAverageStart)}</strong></span>
-            <span><small>Première pause</small><strong>{minuteOfDayLabel(aggregateAverageFirstBreak)}</strong></span>
-            <span><small>Première reprise</small><strong>{minuteOfDayLabel(aggregateAverageFirstResume)}</strong></span>
+            <span><small>Pause moyenne</small><strong>{minuteOfDayLabel(aggregateAverageFirstBreak)}</strong></span>
+            <span><small>Reprise moyenne</small><strong>{minuteOfDayLabel(aggregateAverageFirstResume)}</strong></span>
             <span><small>Fin moyenne</small><strong>{minuteOfDayLabel(aggregateAverageEnd)}</strong></span>
             <p>Calculé sur {collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""} et {aggregateDays.length} journée{aggregateDays.length > 1 ? "s" : ""}.</p>
           </div>
@@ -1005,8 +1302,12 @@ export function OrganisationReports({
         <header className="admin-attendance-heading">
           <div><span>Présences et temps</span><h2>{selectedProfile ? `Rapport de ${selectedProfile.fullname}` : "Activité de l’équipe"}</h2><p>{collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""} dans le périmètre filtré.</p></div>
           <details className="activity-column-picker admin-column-picker">
-            <summary><Columns3 size={15} /> Colonnes</summary>
-            <div>{columnOrder.map((column) => <label key={column}><input type="checkbox" checked={visibleColumns.includes(column)} disabled={column === "collaborator"} onChange={() => toggleColumn(column)} /><span>{summaryColumnLabel(column)}</span></label>)}</div>
+            <summary><Columns3 size={15} /> Colonnes <span>{visibleColumns.length}/{columnOrder.length}</span></summary>
+            <div className="activity-column-picker-menu">
+              <header><strong>Colonnes affichées</strong><span>{visibleColumns.length} sélectionnée{visibleColumns.length > 1 ? "s" : ""}</span></header>
+              <div className="activity-column-picker-options">{columnOrder.map((column) => <label key={column}><input type="checkbox" checked={visibleColumns.includes(column)} onChange={() => toggleColumn(column)} /><span>{summaryColumnLabel(column)}</span></label>)}</div>
+              <footer><button type="button" onClick={() => setVisibleColumns([...columnOrder])}>Tout</button><button type="button" onClick={() => setVisibleColumns([])}>Aucun</button><button type="button" onClick={() => setVisibleColumns([...reportDefaultColumns])}>Par défaut</button></footer>
+            </div>
           </details>
         </header>
 
@@ -1020,11 +1321,18 @@ export function OrganisationReports({
 
         {displayedSummaries.length === 0 ? (
           <div className="report-empty"><Clock3 size={25} /><p>Aucun collaborateur ne correspond à ces filtres.</p></div>
+        ) : visibleColumns.length === 0 ? (
+          <div className="report-empty activity-columns-empty"><Columns3 size={25} /><strong>Aucune colonne affichée</strong><p>Sélectionnez les colonnes à afficher avec le bouton « Colonnes ».</p><button type="button" onClick={() => setVisibleColumns([...reportDefaultColumns])}>Afficher les colonnes par défaut</button></div>
         ) : (
           <div className="admin-attendance-table report-collaborator-table">
             <table>
               <thead><tr>{visibleColumns.map((column) => <th className={column === "collaborator" ? "sticky-column" : ""} key={column}>{summaryColumnLabel(column)}</th>)}<th><span className="sr-only">Détails</span></th></tr></thead>
-              <tbody>{displayedSummaries.map((summary) => {
+              <tbody>
+                <tr className="report-aggregate-row">
+                  {visibleColumns.map((column) => <td className={column === "collaborator" ? "sticky-column admin-person-cell" : ""} data-label={summaryColumnLabel(column)} key={column}>{column === "collaborator" ? <><span>Σ</span><div><strong>Synthèse</strong><small>{collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""}</small></div></> : aggregateCellValue(column)}</td>)}
+                  <td className="report-row-action"><span>{aggregateDays.length} journée{aggregateDays.length > 1 ? "s" : ""}</span></td>
+                </tr>
+                {displayedSummaries.map((summary) => {
                 const expanded = expandedProfileIds.includes(summary.profile.id);
                 const singleDay = summary.days[0];
                 return [
@@ -1032,7 +1340,7 @@ export function OrganisationReports({
                     {visibleColumns.map((column) => <td className={column === "collaborator" ? "sticky-column admin-person-cell" : ""} data-label={summaryColumnLabel(column)} key={column}>{column === "collaborator" ? <><span>{summary.profile.fullname.slice(0, 2).toUpperCase()}</span><div><button className="report-person-focus" type="button" onClick={() => focusCollaborator(summary.profile.id)}>{summary.profile.fullname}</button><small>{summary.profile.identifiant}</small></div></> : summaryCellValue(summary, column)}</td>)}
                     <td className="report-row-action">{isSingleDay ? <button type="button" disabled={!singleDay} onClick={() => singleDay && setSelectedRowKey(singleDay.key)}><Clock3 size={15} /><span>Pointages</span></button> : <button type="button" aria-expanded={expanded} aria-controls={`report-days-${summary.profile.id}`} onClick={() => toggleCollaborator(summary.profile.id)}><ChevronDown size={17} /><span>{expanded ? "Masquer" : "Journées"}</span></button>}</td>
                   </tr>,
-                  !isSingleDay && expanded ? <tr className="report-days-row" key={`${summary.profile.id}-days`}><td colSpan={visibleColumns.length + 1}><div className="report-days-accordion" id={`report-days-${summary.profile.id}`}><header><div><small>Détail de la période</small><strong>{summary.profile.fullname}</strong></div><span>{summary.days.length} journée{summary.days.length > 1 ? "s" : ""}</span></header>{summary.days.length ? <div className="report-day-list"><div className="report-day-line heading"><span>Journée</span><span>Début</span><span>1re pause</span><span>1re reprise</span><span>Fin</span><span>Pauses</span><span>Temps de pause</span><span>Retard</span><span>Solde</span><span /></div>{summary.days.map((day) => <button className={day.isPotentialAbsence ? "report-day-line is-absence" : "report-day-line"} type="button" onClick={() => setSelectedRowKey(day.key)} key={day.key}><span data-label="Journée"><strong>{new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day.day}T12:00:00`))}</strong>{day.isPotentialAbsence && <small>Absence potentielle</small>}</span><span data-label="Début">{dayCellValue(day, "start")}</span><span data-label="1re pause">{dayCellValue(day, "firstBreak")}</span><span data-label="1re reprise">{dayCellValue(day, "firstResume")}</span><span data-label="Fin">{dayCellValue(day, "end")}</span><span data-label="Pauses">{dayCellValue(day, "breakCount")}</span><span data-label="Temps de pause">{dayCellValue(day, "pauseDuration")}</span><span data-label="Retard">{dayCellValue(day, "late")}</span><span data-label="Solde">{dayCellValue(day, "balance")}</span><ChevronRight size={16} /></button>)}</div> : <div className="report-days-empty"><CalendarDays size={21} /> Aucune journée disponible sur cette période.</div>}</div></td></tr> : null,
+                  !isSingleDay && expanded ? <tr className="report-days-row" key={`${summary.profile.id}-days`}><td colSpan={visibleColumns.length + 1}><div className="report-days-accordion" id={`report-days-${summary.profile.id}`}><header><div><small>Détail de la période</small><strong>{summary.profile.fullname}</strong></div><span>{summary.days.length} journée{summary.days.length > 1 ? "s" : ""}</span></header>{summary.days.length ? <div className="report-day-list"><div className="report-day-line heading"><span>Journée</span><span>Début</span><span>Pause</span><span>Reprise</span><span>Fin</span><span>Pauses</span><span>Temps de pause</span><span>Retard</span><span>Solde réglementaire</span><span>Solde global</span><span /></div>{summary.days.map((day) => <button className={day.isPotentialAbsence ? "report-day-line is-absence" : "report-day-line"} type="button" onClick={() => setSelectedRowKey(day.key)} key={day.key}><span data-label="Journée"><strong>{new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day.day}T12:00:00`))}</strong>{day.isPotentialAbsence && <small>Absence potentielle</small>}</span><span data-label="Début">{dayCellValue(day, "start")}</span><span data-label="Pause">{dayCellValue(day, "firstBreak")}</span><span data-label="Reprise">{dayCellValue(day, "firstResume")}</span><span data-label="Fin">{dayCellValue(day, "end")}</span><span data-label="Pauses">{dayCellValue(day, "breakCount")}</span><span data-label="Temps de pause">{dayCellValue(day, "pauseDuration")}</span><span data-label="Retard">{dayCellValue(day, "late")}</span><span data-label="Solde réglementaire">{dayCellValue(day, "averageRegulatoryBalance")}</span><span data-label="Solde global">{dayCellValue(day, "averageGlobalBalance")}</span><ChevronRight size={16} /></button>)}</div> : <div className="report-days-empty"><CalendarDays size={21} /> Aucune journée disponible sur cette période.</div>}</div></td></tr> : null,
                 ];
               })}</tbody>
             </table>
@@ -1056,7 +1364,8 @@ export function OrganisationReports({
               <div><strong>{durationLabel(selectedRow.worked)}</strong><small>travaillées</small><i /><strong>{durationLabel(selectedRow.pause)}</strong><small>de pause</small></div>
             </header>
             <div className="admin-detail-date"><Clock3 size={16} /><span>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(new Date(`${selectedRow.day}T12:00:00`))}</span><strong className={`admin-detail-state ${selectedRow.status}`}>{statusLabels[selectedRow.status]}</strong></div>
-            {selectedRow.evaluation && <div className="admin-policy-comparison"><article><small>Horaire prévu</small><strong>{selectedRow.evaluation.schedule ? `${selectedRow.evaluation.schedule.startTime}–${selectedRow.evaluation.schedule.endTime}` : "Libre"}</strong></article><article><small>Temps attendu</small><strong>{durationLabel(selectedRow.evaluation.expectedMinutes)}</strong></article><article><small>Écart</small><strong>{selectedRow.evaluation.differenceMinutes > 0 ? "+" : selectedRow.evaluation.differenceMinutes < 0 ? "−" : ""}{durationLabel(Math.abs(selectedRow.evaluation.differenceMinutes))}</strong></article><article className={selectedRow.evaluation.lateMinutes > 0 ? "issue" : "ok"} title={`${durationLabel(selectedRow.evaluation.arrivalLateMinutes)} à l’arrivée · ${durationLabel(selectedRow.evaluation.breakOverrunMinutes)} de dépassement de pause`}><small>Retard cumulé</small><strong>{durationLabel(selectedRow.evaluation.lateMinutes)}</strong></article></div>}
+            {selectedRow.evaluation && <div className="admin-policy-comparison"><article><small>Horaire prévu</small><strong>{selectedRow.evaluation.schedule ? `${selectedRow.evaluation.schedule.startTime}–${selectedRow.evaluation.schedule.endTime}` : "Libre"}</strong></article><article><small>Temps attendu</small><strong>{durationLabel(selectedRow.evaluation.expectedMinutes)}</strong></article><article><small>Solde réglementaire</small><strong>{balanceLabel(Math.min(selectedRow.evaluation.differenceMinutes, 0))}</strong></article><article><small>Solde global</small><strong>{balanceLabel(selectedRow.evaluation.differenceMinutes)}</strong></article><article className={selectedRow.evaluation.lateMinutes > 0 ? "issue" : "ok"}><small>Retard de début de service</small><strong>{durationLabel(selectedRow.evaluation.lateMinutes)}</strong></article></div>}
+            {selectedRow.evaluation?.rawOvertimeMinutes ? <div className="admin-detail-actions"><span>Temps supplémentaire détecté : {durationLabel(selectedRow.evaluation.rawOvertimeMinutes)} · {selectedRow.evaluation.overtimeApprovalStatus === "approved" ? "validé" : selectedRow.evaluation.overtimeApprovalStatus === "rejected" ? "refusé" : "à décider"}</span><button type="button" disabled={reviewingOvertime} onClick={() => void reviewOvertime("rejected")}><X size={15} /> Refuser</button><button type="button" disabled={reviewingOvertime} onClick={() => void reviewOvertime("approved")}><Check size={15} /> Valider</button></div> : null}
             <div className="activity-detail-events">
               {selectedRow.events.length ? [...selectedRow.events].sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at)).map((event) => {
                 const Icon = typeIcons[event.type];

@@ -36,14 +36,18 @@ export type WorkPolicyDefinition = {
   daySchedules: Record<string, WorkDaySchedule>;
   weeklyTargetMinutes: number;
   breakMinutes: number;
+  breakOverrunDeductionEnabled?: boolean;
   toleranceMinutes: number;
   roundingMinutes: 0 | 5 | 10 | 15;
   overtimeEnabled: boolean;
   overtimeApprovalRequired: boolean;
   minimumRestMinutes: number;
   minimumBreakAfterMinutes: number;
+  unclosedDayPenaltyMinutes?: number;
   reminders?: Partial<WorkReminderSettings>;
 };
+
+export const DEFAULT_UNCLOSED_DAY_PENALTY_MINUTES = 30;
 
 export const weekdayOptions = [
   { value: 1, short: "L", label: "Lundi" },
@@ -64,12 +68,14 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     daySchedules: {},
     weeklyTargetMinutes: 2400,
     breakMinutes: 60,
+    breakOverrunDeductionEnabled: false,
     toleranceMinutes: 10,
     roundingMinutes: 0,
     overtimeEnabled: true,
     overtimeApprovalRequired: true,
     minimumRestMinutes: 660,
     minimumBreakAfterMinutes: 360,
+    unclosedDayPenaltyMinutes: DEFAULT_UNCLOSED_DAY_PENALTY_MINUTES,
     reminders: { ...defaultWorkReminderSettings },
   },
   flexible: {
@@ -80,12 +86,14 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     daySchedules: {},
     weeklyTargetMinutes: 2400,
     breakMinutes: 60,
+    breakOverrunDeductionEnabled: false,
     toleranceMinutes: 0,
     roundingMinutes: 0,
     overtimeEnabled: true,
     overtimeApprovalRequired: true,
     minimumRestMinutes: 660,
     minimumBreakAfterMinutes: 360,
+    unclosedDayPenaltyMinutes: 0,
     reminders: {
       ...defaultWorkReminderSettings,
       enabled: false,
@@ -100,12 +108,14 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
     daySchedules: {},
     weeklyTargetMinutes: 0,
     breakMinutes: 0,
+    breakOverrunDeductionEnabled: false,
     toleranceMinutes: 0,
     roundingMinutes: 0,
     overtimeEnabled: false,
     overtimeApprovalRequired: false,
     minimumRestMinutes: 0,
     minimumBreakAfterMinutes: 0,
+    unclosedDayPenaltyMinutes: 0,
     reminders: {
       ...defaultWorkReminderSettings,
       enabled: false,
@@ -123,6 +133,18 @@ export function workReminderSettings(
     ...defaultWorkReminderSettings,
     ...definition.reminders,
   };
+}
+
+export function unclosedDayPenaltyMinutes(
+  definition: WorkPolicyDefinition,
+) {
+  const configured = definition.unclosedDayPenaltyMinutes;
+  if (configured === undefined) {
+    return definition.mode === "fixed"
+      ? DEFAULT_UNCLOSED_DAY_PENALTY_MINUTES
+      : 0;
+  }
+  return Math.max(0, Math.min(720, Math.round(configured)));
 }
 
 export function areWorkReminderSettingsValid(
@@ -156,12 +178,19 @@ export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefin
         candidate.daySchedules !== null)) &&
     typeof candidate.weeklyTargetMinutes === "number" &&
     typeof candidate.breakMinutes === "number" &&
+    (candidate.breakOverrunDeductionEnabled === undefined ||
+      typeof candidate.breakOverrunDeductionEnabled === "boolean") &&
     typeof candidate.toleranceMinutes === "number" &&
     [0, 5, 10, 15].includes(candidate.roundingMinutes ?? -1) &&
     typeof candidate.overtimeEnabled === "boolean" &&
     typeof candidate.overtimeApprovalRequired === "boolean" &&
     typeof candidate.minimumRestMinutes === "number" &&
     typeof candidate.minimumBreakAfterMinutes === "number" &&
+    (candidate.unclosedDayPenaltyMinutes === undefined ||
+      (typeof candidate.unclosedDayPenaltyMinutes === "number" &&
+        Number.isFinite(candidate.unclosedDayPenaltyMinutes) &&
+        candidate.unclosedDayPenaltyMinutes >= 0 &&
+        candidate.unclosedDayPenaltyMinutes <= 720)) &&
     (
       candidate.reminders === undefined ||
       (

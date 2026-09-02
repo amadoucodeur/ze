@@ -23,6 +23,7 @@ import {
   policySummary,
   scheduleForDay,
   scheduledMinutes,
+  unclosedDayPenaltyMinutes,
   weekdayOptions,
   workReminderSettings,
   type WorkPolicyDefinition,
@@ -306,7 +307,10 @@ export function ScopedWorkRules({
       definition.toleranceMinutes > 180 ||
       !Number.isFinite(definition.minimumBreakAfterMinutes) ||
       definition.minimumBreakAfterMinutes < 0 ||
-      definition.minimumBreakAfterMinutes > 1440
+      definition.minimumBreakAfterMinutes > 1440 ||
+      !Number.isFinite(unclosedDayPenaltyMinutes(definition)) ||
+      unclosedDayPenaltyMinutes(definition) < 0 ||
+      unclosedDayPenaltyMinutes(definition) > 720
     ) {
       setFeedback({ type: "error", message: "Une durée configurée n’est pas valide." });
       return;
@@ -495,6 +499,7 @@ export function ScopedWorkRules({
                     <label><span>Fin</span><div><Clock3 size={16} /><input type="time" value={definition.endTime} onChange={(event) => setDefinition({ ...definition, endTime: event.target.value })} /></div></label>
                     <label><span>Pause prévue</span><div><TimerReset size={16} /><input type="number" min={0} max={720} step={5} value={definition.breakMinutes} onChange={(event) => setDefinition({ ...definition, breakMinutes: Number(event.target.value) })} /><em>min</em></div></label>
                     <label><span>Tolérance d’arrivée</span><div><Gauge size={16} /><input type="number" min={0} max={180} step={5} value={definition.toleranceMinutes} onChange={(event) => setDefinition({ ...definition, toleranceMinutes: Number(event.target.value) })} /><em>min</em></div></label>
+                    <label className="wide"><span>Pénalité si le départ est oublié</span><div><TimerReset size={16} /><input type="number" min={0} max={720} step={5} value={unclosedDayPenaltyMinutes(definition)} onChange={(event) => setDefinition({ ...definition, unclosedDayPenaltyMinutes: Number(event.target.value) })} /><em>min</em></div></label>
                   </div>
                   <DailyScheduleOverrides definition={definition} onChange={setDefinition} />
                   <WorkReminderSettings compact definition={definition} onChange={setDefinition} />

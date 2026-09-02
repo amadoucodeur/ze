@@ -22,12 +22,20 @@ export type ReportWorkPolicyAssignment = {
   valid_from: string;
   valid_until: string | null;
   priority: number;
+  created_at?: string;
 };
 
 export type ReportTeamMember = {
   team_id: string;
   profile_id: string;
   is_active: boolean;
+};
+
+export type ReportWorkCalendarException = {
+  work_date: string;
+  target_type: "organisation" | "service" | "profile";
+  service_name: string | null;
+  profile_id: string | null;
 };
 
 export function resolveReportWorkPolicy({
@@ -38,6 +46,7 @@ export function resolveReportWorkPolicy({
   versions,
   assignments,
   teamMembers,
+  calendarExceptions = [],
 }: {
   profileId: string;
   service: string | null;
@@ -46,6 +55,7 @@ export function resolveReportWorkPolicy({
   versions: ReportWorkPolicyVersion[];
   assignments: ReportWorkPolicyAssignment[];
   teamMembers: ReportTeamMember[];
+  calendarExceptions?: ReportWorkCalendarException[];
 }): WorkPolicyDefinition | null {
   const policyById = new Map(policies.map((policy) => [policy.id, policy]));
   const profileTeams = new Set(
@@ -95,7 +105,8 @@ export function resolveReportWorkPolicy({
         ranks[second.target_type] +
           second.priority -
           (ranks[first.target_type] + first.priority) ||
-        second.valid_from.localeCompare(first.valid_from)
+        second.valid_from.localeCompare(first.valid_from) ||
+        (second.created_at ?? "").localeCompare(first.created_at ?? "")
       );
     });
   const policyId = matching[0]?.policy_id ?? defaultPolicy?.id;
@@ -112,10 +123,30 @@ export function resolveReportWorkPolicy({
         second.version_number - first.version_number,
     )[0];
 
-  return isWorkPolicyDefinition(version?.definition)
-    ? {
-        ...version.definition,
-        daySchedules: version.definition.daySchedules ?? {},
-      }
-    : null;
+  if (!isWorkPolicyDefinition(version?.definition)) return null;
+
+  const isNonWorkingDay = calendarExceptions.some((exception) => {
+    if (exception.work_date !== day) return false;
+    if (exception.target_type === "profile") {
+      return exception.profile_id === profileId;
+    }
+    if (exception.target_type === "service") {
+      return Boolean(
+        exception.service_name &&
+        service &&
+        exception.service_name.trim().toLocaleLowerCase("fr") ===
+          service.trim().toLocaleLowerCase("fr"),
+      );
+    }
+    return exception.target_type === "organisation";
+  });
+  const weekday = new Date(`${day}T12:00:00`).getDay() || 7;
+
+  return {
+    ...version.definition,
+    days: isNonWorkingDay
+      ? version.definition.days.filter((candidate) => candidate !== weekday)
+      : version.definition.days,
+    daySchedules: version.definition.daySchedules ?? {},
+  };
 }

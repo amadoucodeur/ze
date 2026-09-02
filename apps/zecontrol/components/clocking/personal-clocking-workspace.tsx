@@ -26,7 +26,11 @@ import {
 import { ZeControlLogo } from "@ze/ui-foundations/brands";
 import { createClient } from "@/lib/supabase/client";
 import { dateKey } from "@/lib/reports/period";
-import { isWorkPolicyDefinition, type WorkPolicyDefinition } from "@/lib/work-policy";
+import {
+  isWorkPolicyDefinition,
+  unclosedDayPenaltyMinutes,
+  type WorkPolicyDefinition,
+} from "@/lib/work-policy";
 import {
   currentBreakProgress,
   currentWorkPolicyMessage,
@@ -186,7 +190,10 @@ export function PersonalClockingWorkspace({
   const [clockingZone, setClockingZone] = useState<ClockingZone | null>(null);
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
+  const [previousDayPromptOpen, setPreviousDayPromptOpen] = useState(false);
   const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
+  const [previousDayPolicyDefinition, setPreviousDayPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
+  const [previousDayPolicyKey, setPreviousDayPolicyKey] = useState<string | null>(null);
   const actionGuardRef = useRef(false);
   const cooldownTimerRef = useRef<number | null>(null);
   const currentDayKey = dateKey(now, timeZone);
@@ -304,6 +311,75 @@ export function PersonalClockingWorkspace({
     .filter((event) => dateKey(new Date(event.pointed_at), timeZone) === selectedDay && (event.event_status === "accepted" || event.event_status === "pending"))
     .sort((a, b) => new Date(a.pointed_at).getTime() - new Date(b.pointed_at).getTime());
   const selectedDayMinutes = minutesForEvents(selectedDayEvents, now, timeZone);
+  const previousOpenDay = (() => {
+    const pastDays = [...new Set(
+      events
+        .filter(
+          (event) =>
+            (event.event_status === "accepted" || event.event_status === "pending") &&
+            dateKey(new Date(event.pointed_at), timeZone) < today,
+        )
+        .map((event) => dateKey(new Date(event.pointed_at), timeZone)),
+    )].sort((left, right) => right.localeCompare(left));
+
+    const day = pastDays[0];
+    if (!day) return null;
+    const dayEvents = events
+      .filter(
+        (event) =>
+          (event.event_status === "accepted" || event.event_status === "pending") &&
+          dateKey(new Date(event.pointed_at), timeZone) === day,
+      )
+      .sort(
+        (left, right) =>
+          new Date(left.pointed_at).getTime() -
+          new Date(right.pointed_at).getTime(),
+      );
+    const last = dayEvents.at(-1);
+    if (last?.type === "start" || last?.type === "resume") {
+      return { day, last };
+    }
+    return null;
+  })();
+  const previousOpenDayKey = previousOpenDay?.day ?? null;
+  const previousClosurePolicy =
+    previousDayPolicyKey === previousOpenDayKey
+      ? previousDayPolicyDefinition
+      : workPolicyDefinition;
+
+  useEffect(() => {
+    let active = true;
+    if (!previousOpenDayKey) {
+      return () => {
+        active = false;
+      };
+    }
+
+    async function loadPreviousDayPolicy() {
+      const { data } = await supabase
+        .schema("zecontrol")
+        .rpc("resolve_work_policy", {
+          target_profile_id: profileId,
+          target_work_date: previousOpenDayKey,
+        });
+      if (!active) return;
+      const resolved = data as { definition?: unknown } | null;
+      setPreviousDayPolicyDefinition(
+        isWorkPolicyDefinition(resolved?.definition)
+          ? {
+              ...resolved.definition,
+              daySchedules: resolved.definition.daySchedules ?? {},
+            }
+          : null,
+      );
+      setPreviousDayPolicyKey(previousOpenDayKey);
+    }
+
+    void loadPreviousDayPolicy();
+    return () => {
+      active = false;
+    };
+  }, [previousOpenDayKey, profileId, supabase]);
   const agentState = isWorking ? "working" : isPaused ? "paused" : isCompletedToday ? "completed" : "ready";
   const agentStateCopy = {
     working: { eyebrow: "Journée en cours", title: "Vous êtes au travail", description: "Votre temps avance. Prenez une pause quand vous en avez besoin.", Icon: ShieldCheck },
@@ -388,7 +464,11 @@ export function PersonalClockingWorkspace({
     });
   }
 
-  async function createEvent(type: EventType) {
+  async function createEvent(type: EventType, skipPreviousDayCheck = false) {
+    if (type === "start" && previousOpenDay && !skipPreviousDayCheck) {
+      setPreviousDayPromptOpen(true);
+      return;
+    }
     if (actionGuardRef.current || submitting || !locationReady) return;
     actionGuardRef.current = true;
     setSubmitting(type);
@@ -441,6 +521,8 @@ export function PersonalClockingWorkspace({
         type: "error",
         message: /billing_access_suspended/i.test(message)
           ? "La facturation de l’organisation doit être régularisée avant un nouveau pointage. Contactez votre responsable."
+          : /minimum_rest_not_reached/i.test(message)
+          ? "Le repos minimum prévu entre deux journées n’est pas encore atteint. Contactez votre responsable si une dérogation est nécessaire."
           : databaseNotReady
           ? "Le service de pointage est momentanément indisponible. Contactez votre administrateur."
           : message === "offline"
@@ -502,6 +584,56 @@ export function PersonalClockingWorkspace({
 
   return (
     <div className={`personal-clocking personal-clocking-${mode} ${showReports ? "personal-clocking-with-reports" : "personal-clocking-clock-only"}`}>
+      {previousDayPromptOpen && previousOpenDay && (
+        <div className="previous-day-resolution-overlay" role="presentation">
+          <section
+            className="previous-day-resolution-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="previous-day-resolution-title"
+          >
+            <span className="previous-day-resolution-icon"><AlertTriangle size={24} /></span>
+            <div>
+              <small>Avant de commencer</small>
+              <h2 id="previous-day-resolution-title">La journée précédente n’a pas été terminée</h2>
+              <p>
+                Indiquez votre départ réel. Sinon, ZeControl clôturera cette journée
+                à l’heure prévue et retirera {previousClosurePolicy?.mode === "fixed"
+                  ? `${unclosedDayPenaltyMinutes(previousClosurePolicy)} minutes`
+                  : "le temps non justifié"}.
+              </p>
+            </div>
+            <div className="previous-day-resolution-actions">
+              <button
+                type="button"
+                className="button button-ghost"
+                onClick={() => {
+                  setPreviousDayPromptOpen(false);
+                  setRequestIntent({
+                    key: `missing-end-${previousOpenDay.day}`,
+                    kind: "missing_event",
+                    requestedAt: previousOpenDay.last.pointed_at,
+                  });
+                }}
+              >
+                <PenLine size={16} /> Renseigner mon départ
+              </button>
+              {previousClosurePolicy?.mode === "fixed" && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => {
+                    setPreviousDayPromptOpen(false);
+                    void createEvent("start", true);
+                  }}
+                >
+                  Continuer avec la pénalité <ArrowRight size={16} />
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
       {showClocking && <section className={`agent-clocking-experience ${mode === "manager" ? "manager-mobile-clocking" : ""}`}>
         <header className="agent-welcome">
           <div><span>{organisationName}</span><h1>Bonjour {fullname.split(" ")[0]}</h1><p>{new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone }).format(now)}</p></div>

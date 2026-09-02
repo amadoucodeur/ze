@@ -23,15 +23,18 @@ import {
 } from "@/components/clocking/event-request-panel";
 import { createClient } from "@/lib/supabase/client";
 import { exportCsv, exportExcel, exportPdf } from "@/lib/reports/export";
+import { isBalanceEligibleDay } from "@/lib/reports/balances";
 import {
   dateKey,
   defaultPeriodDates,
   periodLabel,
+  zonedDayBoundary,
   type ReportPeriod,
 } from "@/lib/reports/period";
 import {
   resolveReportWorkPolicy,
   type ReportTeamMember,
+  type ReportWorkCalendarException,
   type ReportWorkPolicy,
   type ReportWorkPolicyAssignment,
   type ReportWorkPolicyVersion,
@@ -52,6 +55,7 @@ type ActivityEvent = {
   event_status: EventStatus;
   pointed_at: string;
 };
+type OvertimeApproval = { work_date: string; status: "approved" | "rejected" };
 type ActivityColumn =
   | "day"
   | "start"
@@ -62,7 +66,8 @@ type ActivityColumn =
   | "pauseDuration"
   | "worked"
   | "late"
-  | "balance";
+  | "regulatoryBalance"
+  | "globalBalance";
 
 const typeLabels: Record<EventType, string> = {
   start: "Arrivée",
@@ -86,20 +91,32 @@ const columnOrder: ActivityColumn[] = [
   "pauseDuration",
   "worked",
   "late",
-  "balance",
+  "regulatoryBalance",
+  "globalBalance",
 ];
 const columnLabels: Record<ActivityColumn, string> = {
   day: "Journée",
   start: "Début de service",
-  firstBreak: "Première pause",
-  firstResume: "Première reprise",
+  firstBreak: "Pause",
+  firstResume: "Reprise",
   end: "Fin de service",
   breakCount: "Nombre de pauses",
   pauseDuration: "Temps de pause",
   worked: "Temps travaillé",
   late: "Retard",
-  balance: "Solde",
+  regulatoryBalance: "Solde réglementaire",
+  globalBalance: "Solde global",
 };
+const activityDefaultColumns: ActivityColumn[] = [
+  "day",
+  "start",
+  "end",
+  "pauseDuration",
+  "worked",
+  "late",
+  "regulatoryBalance",
+  "globalBalance",
+];
 
 function activeEvents(events: ActivityEvent[]) {
   return [...events]
@@ -194,7 +211,7 @@ function nextDateKey(value: string) {
 function dateKeysBetween(start: string, end: string) {
   const result: string[] = [];
   let current = start;
-  while (current <= end && result.length < 1500) {
+  while (current <= end) {
     result.push(current);
     current = nextDateKey(current);
   }
@@ -232,6 +249,8 @@ export function PersonalActivityDashboard({
   const [workTeamMembers, setWorkTeamMembers] = useState<ReportTeamMember[]>(
     [],
   );
+  const [workCalendarExceptions, setWorkCalendarExceptions] = useState<ReportWorkCalendarException[]>([]);
+  const [overtimeApprovals, setOvertimeApprovals] = useState<OvertimeApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<ReportPeriod>("month");
   const [start, setStart] = useState(initialDates.start);
@@ -242,7 +261,7 @@ export function PersonalActivityDashboard({
     () => new Date().getFullYear(),
   );
   const [visibleColumns, setVisibleColumns] =
-    useState<ActivityColumn[]>(columnOrder);
+    useState<ActivityColumn[]>(activityDefaultColumns);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(() => Date.now());
 
@@ -251,23 +270,45 @@ export function PersonalActivityDashboard({
 
     async function load() {
       const collected: ActivityEvent[] = [];
-      for (let page = 0; page < 20; page += 1) {
-        const from = page * 1000;
-        const result = await supabase
-          .schema("zecontrol")
-          .from("events")
-          .select("id, type, event_status, pointed_at")
-          .eq("profile_id", profileId)
-          .order("pointed_at", { ascending: false })
-          .range(from, from + 999);
+      const rangeStart = period === "all"
+        ? dateKey(new Date(activatedAt), timeZone)
+        : start;
+      for (let page = 0; ; page += 1) {
+        const result = await supabase.schema("zecontrol").rpc("list_report_event_days", {
+          target_organisation_id: organisationId,
+          target_profile_id: profileId,
+          range_start: rangeStart ? zonedDayBoundary(rangeStart, timeZone).toISOString() : null,
+          range_end: end ? zonedDayBoundary(nextDateKey(end), timeZone).toISOString() : null,
+          page_offset: page * 500,
+          page_limit: 500,
+        });
         if (!active) return;
-        if (result.error) break;
-        const batch = (result.data ?? []) as ActivityEvent[];
-        collected.push(...batch);
-        if (batch.length < 1000) break;
+        if (result.error) {
+          if (page === 0) {
+            for (let fallbackPage = 0; ; fallbackPage += 1) {
+              const from = fallbackPage * 1000;
+              let request = supabase.schema("zecontrol").from("events")
+                .select("id, type, event_status, pointed_at")
+                .eq("profile_id", profileId)
+                .order("pointed_at", { ascending: false });
+              if (rangeStart) request = request.gte("pointed_at", zonedDayBoundary(rangeStart, timeZone).toISOString());
+              if (end) request = request.lt("pointed_at", zonedDayBoundary(nextDateKey(end), timeZone).toISOString());
+              const fallback = await request.range(from, from + 999);
+              if (!active) return;
+              if (fallback.error) break;
+              const fallbackBatch = (fallback.data ?? []) as ActivityEvent[];
+              collected.push(...fallbackBatch);
+              if (fallbackBatch.length < 1000) break;
+            }
+          }
+          break;
+        }
+        const batch = (result.data ?? []) as { event_data: ActivityEvent[] }[];
+        collected.push(...batch.flatMap((day) => day.event_data));
+        if (batch.length < 500) break;
       }
 
-      const [policies, versions, assignments, members] = await Promise.all([
+      const [policies, versions, assignments, members, exceptions, approvals] = await Promise.all([
         supabase
           .schema("zecontrol")
           .from("work_policies")
@@ -282,13 +323,24 @@ export function PersonalActivityDashboard({
           .schema("zecontrol")
           .from("work_policy_assignments")
           .select(
-            "policy_id, target_type, service_name, team_id, profile_id, valid_from, valid_until, priority",
+            "policy_id, target_type, service_name, team_id, profile_id, valid_from, valid_until, priority, created_at",
           )
           .eq("organisation_id", organisationId),
         supabase
           .schema("zecontrol")
           .from("work_team_members")
           .select("team_id, profile_id, is_active"),
+        supabase
+          .schema("zecontrol")
+          .from("work_calendar_exceptions")
+          .select("work_date, target_type, service_name, profile_id")
+          .eq("organisation_id", organisationId),
+        supabase
+          .schema("zecontrol")
+          .from("overtime_approvals")
+          .select("work_date, status")
+          .eq("organisation_id", organisationId)
+          .eq("profile_id", profileId),
       ]);
       if (!active) return;
 
@@ -307,6 +359,12 @@ export function PersonalActivityDashboard({
           (assignments.data ?? []) as ReportWorkPolicyAssignment[],
         );
         setWorkTeamMembers((members.data ?? []) as ReportTeamMember[]);
+        setWorkCalendarExceptions(
+          exceptions.error
+            ? []
+            : ((exceptions.data ?? []) as ReportWorkCalendarException[]),
+        );
+        setOvertimeApprovals(approvals.error ? [] : ((approvals.data ?? []) as OvertimeApproval[]));
       }
       setLoading(false);
     }
@@ -315,7 +373,7 @@ export function PersonalActivityDashboard({
     return () => {
       active = false;
     };
-  }, [organisationId, profileId, supabase]);
+  }, [activatedAt, end, organisationId, period, profileId, start, supabase, timeZone]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockTick(Date.now()), 30_000);
@@ -341,6 +399,7 @@ export function PersonalActivityDashboard({
         versions: workPolicyVersions,
         assignments: workPolicyAssignments,
         teamMembers: workTeamMembers,
+        calendarExceptions: workCalendarExceptions,
       }),
     [
       profileId,
@@ -349,6 +408,7 @@ export function PersonalActivityDashboard({
       workPolicyAssignments,
       workPolicyVersions,
       workTeamMembers,
+      workCalendarExceptions,
     ],
   );
 
@@ -368,11 +428,14 @@ export function PersonalActivityDashboard({
       groups.set(key, current);
     }
 
-    if (period !== "all" && start && end) {
+    const effectiveStart = period === "all"
+      ? dateKey(new Date(activatedAt), timeZone)
+      : start;
+    if (effectiveStart && end) {
       const today = dateKey(new Date(clockTick), timeZone);
       const lastRelevantDay = end < today ? end : today;
       const activationDay = dateKey(new Date(activatedAt), timeZone);
-      for (const day of dateKeysBetween(start, lastRelevantDay)) {
+      for (const day of dateKeysBetween(effectiveStart, lastRelevantDay)) {
         if (day < activationDay) continue;
         const definition = resolveDefinition(day);
         const scheduled = definition
@@ -397,6 +460,9 @@ export function PersonalActivityDashboard({
             date: key,
             now: new Date(clockTick),
             timeZone,
+            overtimeReviewStatus: overtimeApprovals.find(
+              (approval) => approval.work_date === key,
+            )?.status,
           })
         : null;
       const rawWorkedMinutes = evaluateRawWorkedMinutes(
@@ -428,7 +494,9 @@ export function PersonalActivityDashboard({
         minutes: evaluation?.workedMinutes ?? rawWorkedMinutes,
         pauseMinutes: evaluation?.pauseMinutes ?? rawPauseMinutes,
         pauses: valid.filter((event) => event.type === "break").length,
-        completed: valid.at(-1)?.type === "end",
+        completed:
+          valid.at(-1)?.type === "end" ||
+          Boolean(evaluation && evaluation.automaticClosure !== "none"),
         issue: chronological.some(
           (event) =>
             event.event_status === "pending" ||
@@ -446,6 +514,7 @@ export function PersonalActivityDashboard({
     clockTick,
     end,
     events,
+    overtimeApprovals,
     period,
     resolveDefinition,
     start,
@@ -473,6 +542,15 @@ export function PersonalActivityDashboard({
     (sum, day) => sum + (day.evaluation?.overtimeMinutes ?? 0),
     0,
   );
+  const balanceDays = days.filter(isBalanceEligibleDay);
+  const totalGlobalBalance = balanceDays.reduce(
+    (sum, day) => sum + (day.evaluation?.differenceMinutes ?? 0),
+    0,
+  );
+  const totalRegulatoryBalance = balanceDays.reduce(
+    (sum, day) => sum + Math.min(day.evaluation?.differenceMinutes ?? 0, 0),
+    0,
+  );
   const totalBreaks = days.reduce((sum, day) => sum + day.pauses, 0);
   const totalPause = days.reduce(
     (sum, day) => sum + day.pauseMinutes,
@@ -495,6 +573,12 @@ export function PersonalActivityDashboard({
   const averageOvertime = average(
     workedDays.map((day) => day.evaluation?.overtimeMinutes ?? 0),
   );
+  const averageGlobalBalance = average(
+    balanceDays.map((day) => day.evaluation?.differenceMinutes ?? 0),
+  );
+  const averageRegulatoryBalance = average(
+    balanceDays.map((day) => Math.min(day.evaluation?.differenceMinutes ?? 0, 0)),
+  );
   const averageStart = averageTime(
     workedDays.map((day) => eventMinuteOfDay(day.first, timeZone)),
   );
@@ -505,7 +589,21 @@ export function PersonalActivityDashboard({
     workedDays.map((day) => eventMinuteOfDay(day.firstResume, timeZone)),
   );
   const averageEnd = averageTime(
-    workedDays.map((day) => eventMinuteOfDay(day.end, timeZone)),
+    workedDays.map((day) => {
+      if (day.end) return eventMinuteOfDay(day.end, timeZone);
+      if (day.evaluation?.automaticClosure === "scheduled_end") {
+        const [hours, minutes] = (day.evaluation.schedule?.endTime ?? "")
+          .split(":")
+          .map(Number);
+        return Number.isFinite(hours) && Number.isFinite(minutes)
+          ? hours * 60 + minutes
+          : null;
+      }
+      if (day.evaluation?.automaticClosure === "break_start") {
+        return eventMinuteOfDay(day.valid.at(-1), timeZone);
+      }
+      return null;
+    }),
   );
   const issueCount = days.filter((day) => day.issue).length;
   const label = periodLabel(period, start, end);
@@ -620,7 +718,6 @@ export function PersonalActivityDashboard({
   );
 
   function toggleColumn(column: ActivityColumn) {
-    if (column === "day") return;
     setVisibleColumns((columns) =>
       columns.includes(column)
         ? columns.filter((item) => item !== column)
@@ -640,6 +737,17 @@ export function PersonalActivityDashboard({
       : "—";
   }
 
+  function effectiveEndOf(day: (typeof days)[number]) {
+    if (day.end) return timeOf(day.end);
+    if (day.evaluation?.automaticClosure === "scheduled_end") {
+      return `${day.evaluation.schedule?.endTime ?? "—"} · auto`;
+    }
+    if (day.evaluation?.automaticClosure === "break_start") {
+      return `${timeOf(day.valid.at(-1))} · auto`;
+    }
+    return "—";
+  }
+
   function cellValue(
     day: (typeof days)[number],
     column: ActivityColumn,
@@ -654,7 +762,7 @@ export function PersonalActivityDashboard({
     if (column === "start") return timeOf(day.first);
     if (column === "firstBreak") return timeOf(day.firstBreak);
     if (column === "firstResume") return timeOf(day.firstResume);
-    if (column === "end") return timeOf(day.end);
+    if (column === "end") return effectiveEndOf(day);
     if (column === "breakCount") return String(day.pauses);
     if (column === "pauseDuration") return durationLabel(day.pauseMinutes);
     if (column === "worked") return durationLabel(day.minutes);
@@ -662,6 +770,9 @@ export function PersonalActivityDashboard({
       return day.evaluation?.lateMinutes
         ? durationLabel(day.evaluation.lateMinutes)
         : "—";
+    }
+    if (column === "regulatoryBalance") {
+      return balanceLabel(day.evaluation ? Math.min(day.evaluation.differenceMinutes, 0) : null);
     }
     return balanceLabel(day.evaluation?.differenceMinutes);
   }
@@ -687,11 +798,15 @@ export function PersonalActivityDashboard({
       "Temps de pause",
       "Absences potentielles",
       "Taux moyen d’absence",
-      "Cumul heures supplémentaires",
-      "Moyenne heures supplémentaires",
+      "Cumul du temps supplémentaire",
+      "Moyenne du temps supplémentaire",
+      "Solde réglementaire cumulé",
+      "Solde réglementaire moyen",
+      "Solde global cumulé",
+      "Solde global moyen",
       "Début moyen",
-      "Première pause moyenne",
-      "Première reprise moyenne",
+      "Pause moyenne",
+      "Reprise moyenne",
       "Fin moyenne",
     ];
     const summaryRows = [
@@ -713,6 +828,10 @@ export function PersonalActivityDashboard({
         absenceRate === null ? "—" : `${decimalLabel(absenceRate)} %`,
         durationLabel(totalOvertime),
         averageOvertime === null ? "—" : durationLabel(averageOvertime),
+        balanceLabel(totalRegulatoryBalance),
+        balanceLabel(averageRegulatoryBalance),
+        balanceLabel(totalGlobalBalance),
+        balanceLabel(averageGlobalBalance),
         minuteOfDayLabel(averageStart),
         minuteOfDayLabel(averageFirstBreak),
         minuteOfDayLabel(averageFirstResume),
@@ -721,18 +840,26 @@ export function PersonalActivityDashboard({
     ];
     const detailHeaders = [
       ...visibleColumns.map((column) => columnLabels[column]),
-      "Retard à l’arrivée",
+      "Retard de début de service",
       "Dépassement de pause",
-      "Retard cumulé",
-      "Heures supplémentaires",
+      "Temps supplémentaire",
+      "Clôture",
+      "Pénalité de clôture",
       "Chronologie",
     ];
     const detailRows = days.map((day) => [
       ...visibleColumns.map((column) => cellValue(day, column)),
       durationLabel(day.evaluation?.arrivalLateMinutes ?? 0),
       durationLabel(day.evaluation?.breakOverrunMinutes ?? 0),
-      durationLabel(day.evaluation?.lateMinutes ?? 0),
       durationLabel(day.evaluation?.overtimeMinutes ?? 0),
+      day.evaluation?.automaticClosure === "break_start"
+        ? "Automatique au début de la pause"
+        : day.evaluation?.automaticClosure === "scheduled_end"
+          ? "Automatique à la fin prévue"
+          : "Normale",
+      day.evaluation?.automaticClosurePenaltyMinutes
+        ? durationLabel(day.evaluation.automaticClosurePenaltyMinutes)
+        : "—",
       activeEvents(day.events)
         .map((event) => `${timeOf(event)} ${typeLabels[event.type]}`)
         .join(" · ") || "Aucun pointage",
@@ -885,7 +1012,7 @@ export function PersonalActivityDashboard({
         <article>
           <span><CalendarDays size={20} /></span>
           <div>
-            <small>Cumul des heures supplémentaires</small>
+            <small>Cumul du temps supplémentaire</small>
             <strong>{durationLabel(totalOvertime)}</strong>
             <p>
               {averageOvertime === null
@@ -894,17 +1021,33 @@ export function PersonalActivityDashboard({
             </p>
           </div>
         </article>
+        <article>
+          <span><Clock3 size={20} /></span>
+          <div>
+            <small>Solde réglementaire cumulé</small>
+            <strong>{balanceLabel(totalRegulatoryBalance)}</strong>
+            <p>{balanceLabel(averageRegulatoryBalance)} en moyenne par journée clôturée</p>
+          </div>
+        </article>
+        <article>
+          <span><Timer size={20} /></span>
+          <div>
+            <small>Solde global cumulé</small>
+            <strong>{balanceLabel(totalGlobalBalance)}</strong>
+            <p>{balanceLabel(averageGlobalBalance)} en moyenne par journée clôturée</p>
+          </div>
+        </article>
         <div className="report-average-strip">
           <span>
             <small>Début moyen</small>
             <strong>{minuteOfDayLabel(averageStart)}</strong>
           </span>
           <span>
-            <small>Première pause</small>
+            <small>Pause moyenne</small>
             <strong>{minuteOfDayLabel(averageFirstBreak)}</strong>
           </span>
           <span>
-            <small>Première reprise</small>
+            <small>Reprise moyenne</small>
             <strong>{minuteOfDayLabel(averageFirstResume)}</strong>
           </span>
           <span>
@@ -1061,25 +1204,28 @@ export function PersonalActivityDashboard({
               {issueCount ? ` · ${issueCount} à vérifier` : ""}
             </span>
             <details className="activity-column-picker">
-              <summary><Columns3 size={15} /> Colonnes</summary>
-              <div>
-                {columnOrder.map((column) => (
-                  <label key={column}>
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.includes(column)}
-                      disabled={column === "day"}
-                      onChange={() => toggleColumn(column)}
-                    />
-                    <span>{columnLabels[column]}</span>
-                  </label>
-                ))}
+              <summary><Columns3 size={15} /> Colonnes <span>{visibleColumns.length}/{columnOrder.length}</span></summary>
+              <div className="activity-column-picker-menu">
+                <header><strong>Colonnes affichées</strong><span>{visibleColumns.length} sélectionnée{visibleColumns.length > 1 ? "s" : ""}</span></header>
+                <div className="activity-column-picker-options">
+                  {columnOrder.map((column) => (
+                    <label key={column}>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.includes(column)}
+                        onChange={() => toggleColumn(column)}
+                      />
+                      <span>{columnLabels[column]}</span>
+                    </label>
+                  ))}
+                </div>
+                <footer><button type="button" onClick={() => setVisibleColumns([...columnOrder])}>Tout</button><button type="button" onClick={() => setVisibleColumns([])}>Aucun</button><button type="button" onClick={() => setVisibleColumns([...activityDefaultColumns])}>Par défaut</button></footer>
               </div>
             </details>
           </div>
         </header>
 
-        {days.length ? (
+        {days.length && visibleColumns.length ? (
           <>
             <div className="activity-configurable-table personal-days-desktop">
               <table>
@@ -1111,7 +1257,7 @@ export function PersonalActivityDashboard({
                     >
                       {visibleColumns.map((column) => (
                         <td
-                          className={`${column === "day" ? "sticky-column activity-day-date" : ""} ${column === "balance" ? "activity-balance-cell" : ""}`}
+                          className={`${column === "day" ? "sticky-column activity-day-date" : ""} ${column === "regulatoryBalance" || column === "globalBalance" ? "activity-balance-cell" : ""}`}
                           key={column}
                         >
                           {column === "day" ? (
@@ -1141,30 +1287,31 @@ export function PersonalActivityDashboard({
                   onClick={() => setSelectedDayKey(day.key)}
                   key={`mobile-${day.key}`}
                 >
-                  <header>
-                    <span>
+                  {(visibleColumns.includes("day") || visibleColumns.includes("worked")) && <header>
+                    {visibleColumns.includes("day") && <span>
                       <strong>{cellValue(day, "day")}</strong>
                       <small>
                         {day.isPotentialAbsence
                           ? "Absence potentielle"
                           : `${day.valid.length} pointage${day.valid.length > 1 ? "s" : ""}`}
                       </small>
-                    </span>
-                    <b>{durationLabel(day.minutes)}</b>
-                  </header>
+                    </span>}
+                    {visibleColumns.includes("worked") && <b>{durationLabel(day.minutes)}</b>}
+                  </header>}
                   <div>
-                    <span><small>Début</small><strong>{timeOf(day.first)}</strong></span>
-                    <span><small>Fin</small><strong>{timeOf(day.end)}</strong></span>
-                    <span><small>Pauses</small><strong>{day.pauses} · {durationLabel(day.pauseMinutes)}</strong></span>
-                    <span><small>Solde</small><strong>{balanceLabel(day.evaluation?.differenceMinutes)}</strong></span>
+                    {visibleColumns.filter((column) => column !== "day" && column !== "worked").map((column) => <span key={column}><small>{columnLabels[column]}</small><strong>{cellValue(day, column)}</strong></span>)}
                   </div>
                   <footer>
                     <span>
-                      {day.evaluation?.lateMinutes
-                        ? `${durationLabel(day.evaluation.lateMinutes)} de retard`
-                        : day.issue
-                          ? "À vérifier"
-                          : "Voir la chronologie"}
+                      {day.evaluation && day.evaluation.automaticClosure !== "none"
+                        ? day.evaluation.automaticClosurePenaltyMinutes
+                          ? `Clôture auto · ${durationLabel(day.evaluation.automaticClosurePenaltyMinutes)} retirées`
+                          : "Clôture automatique au début de la pause"
+                        : day.evaluation?.lateMinutes
+                          ? `${durationLabel(day.evaluation.lateMinutes)} de retard`
+                          : day.issue
+                            ? "À vérifier"
+                            : "Voir la chronologie"}
                     </span>
                     <ChevronRight size={17} />
                   </footer>
@@ -1172,6 +1319,13 @@ export function PersonalActivityDashboard({
               ))}
             </div>
           </>
+        ) : days.length ? (
+          <div className="activity-table-empty activity-columns-empty">
+            <Columns3 size={24} />
+            <strong>Aucune colonne affichée</strong>
+            <p>Sélectionnez les colonnes à afficher avec le bouton « Colonnes ».</p>
+            <button type="button" onClick={() => setVisibleColumns([...activityDefaultColumns])}>Afficher les colonnes par défaut</button>
+          </div>
         ) : (
           <div className="activity-table-empty">
             <CalendarDays size={24} />
@@ -1253,21 +1407,20 @@ export function PersonalActivityDashboard({
                   </strong>
                 </span>
                 <span>
-                  <small>Écart</small>
-                  <strong>
-                    {balanceLabel(
-                      selectedDay.evaluation.differenceMinutes,
-                    )}
-                  </strong>
+                  <small>Solde réglementaire</small>
+                  <strong>{balanceLabel(Math.min(selectedDay.evaluation.differenceMinutes, 0))}</strong>
                 </span>
                 <span>
-                  <small>Retard cumulé</small>
+                  <small>Solde global</small>
+                  <strong>{balanceLabel(selectedDay.evaluation.differenceMinutes)}</strong>
+                </span>
+                <span>
+                  <small>Retard de début de service</small>
                   <strong>
                     {durationLabel(selectedDay.evaluation.lateMinutes)}
                   </strong>
                   <em>
-                    {durationLabel(selectedDay.evaluation.arrivalLateMinutes)} arrivée ·{" "}
-                    {durationLabel(selectedDay.evaluation.breakOverrunMinutes)} pause
+                    Dépassement de pause : {durationLabel(selectedDay.evaluation.breakOverrunMinutes)}
                   </em>
                 </span>
               </div>

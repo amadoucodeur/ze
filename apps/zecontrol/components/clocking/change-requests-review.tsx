@@ -58,16 +58,40 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
   useEffect(() => {
     let active = true;
     async function load() {
-      const { data, error } = await supabase
+      const select = "id, created_at, profile_id, requested_by, event_id, request_kind, requested_type, requested_pointed_at, requested_end_at, reason, original_type, original_pointed_at, status, decision_reason";
+      const pending: ChangeRequest[] = [];
+      let error: { message: string } | null = null;
+      for (let page = 0; ; page += 1) {
+        const from = page * 500;
+        const result = await supabase
+          .schema("zecontrol")
+          .from("event_change_requests")
+          .select(select)
+          .eq("organisation_id", organisationId)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .range(from, from + 499);
+        if (!active) return;
+        if (result.error) {
+          error = result.error;
+          break;
+        }
+        const batch = (result.data ?? []) as ChangeRequest[];
+        pending.push(...batch);
+        if (batch.length < 500) break;
+      }
+      const historyResult = await supabase
         .schema("zecontrol")
         .from("event_change_requests")
-        .select("id, created_at, profile_id, requested_by, event_id, request_kind, requested_type, requested_pointed_at, requested_end_at, reason, original_type, original_pointed_at, status, decision_reason")
+        .select(select)
         .eq("organisation_id", organisationId)
+        .neq("status", "pending")
         .order("created_at", { ascending: false })
         .limit(150);
       if (!active) return;
-      if (!error) {
-        const typedRequests = (data ?? []) as ChangeRequest[];
+      if (!error && !historyResult.error) {
+        const typedRequests = [...pending, ...((historyResult.data ?? []) as ChangeRequest[])]
+          .sort((first, second) => second.created_at.localeCompare(first.created_at));
         setRequests(typedRequests);
         const profileIds = [...new Set(typedRequests.flatMap((request) => [request.profile_id, request.requested_by]))];
         if (profileIds.length) {

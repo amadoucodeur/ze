@@ -3,9 +3,11 @@ import { getZeControlAccess } from "@/lib/supabase/access";
 import { ensureProfile } from "@/lib/supabase/profile";
 import { ensureZeControlOwnerAccess } from "@/lib/supabase/provision";
 import { createClient } from "@/lib/supabase/server";
+import { applicationOrigin } from "@/lib/application-origin";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const origin = applicationOrigin();
   const code = url.searchParams.get("code");
   let next = url.searchParams.get("next") ?? "/dashboard";
   if (next !== "/dashboard/organisation/nouvelle") next = "/dashboard";
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
         if (!authenticatedWithGoogle) {
           await supabase.auth.signOut();
           return NextResponse.redirect(
-            `${url.origin}/auth/auth-code-error?reason=login-method`,
+            `${origin}/auth/auth-code-error?reason=login-method`,
           );
         }
 
@@ -31,7 +33,7 @@ export async function GET(request: Request) {
 
         if (!access) {
           return NextResponse.redirect(
-            `${url.origin}/auth/auth-code-error?reason=profile`,
+            `${origin}/auth/auth-code-error?reason=profile`,
           );
         }
 
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
         ) {
           await supabase.auth.signOut();
           return NextResponse.redirect(
-            `${url.origin}/auth/auth-code-error?reason=login-method`,
+            `${origin}/auth/auth-code-error?reason=login-method`,
           );
         }
 
@@ -51,14 +53,14 @@ export async function GET(request: Request) {
             access = await getZeControlAccess(data.user.id);
           } else if (provisionResult === "failed") {
             return NextResponse.redirect(
-              `${url.origin}/activation?error=activation-failed`,
+              `${origin}/activation?error=activation-failed`,
             );
           }
         }
 
         if (!access) {
           return NextResponse.redirect(
-            `${url.origin}/auth/auth-code-error?reason=profile`,
+            `${origin}/auth/auth-code-error?reason=profile`,
           );
         }
 
@@ -69,19 +71,14 @@ export async function GET(request: Request) {
           : access.status === "ready"
             ? "/dashboard"
             : "/activation";
-        const forwardedHost = request.headers.get("x-forwarded-host");
-        const origin =
-          process.env.NODE_ENV === "development" || !forwardedHost
-            ? url.origin
-            : `https://${forwardedHost}`;
         return NextResponse.redirect(`${origin}${destination}`);
       } catch {
         return NextResponse.redirect(
-          `${url.origin}/auth/auth-code-error?reason=profile`,
+          `${origin}/auth/auth-code-error?reason=profile`,
         );
       }
     }
   }
 
-  return NextResponse.redirect(`${url.origin}/auth/auth-code-error`);
+  return NextResponse.redirect(`${origin}/auth/auth-code-error`);
 }

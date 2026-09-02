@@ -23,6 +23,7 @@ import {
   policySummary,
   scheduleForDay,
   scheduledMinutes,
+  unclosedDayPenaltyMinutes,
   weekdayOptions,
   workReminderSettings,
   type WorkPolicyDefinition,
@@ -278,7 +279,10 @@ export function WorkPolicyConfigurator({
       definition.minimumRestMinutes > 2880 ||
       !Number.isFinite(definition.minimumBreakAfterMinutes) ||
       definition.minimumBreakAfterMinutes < 0 ||
-      definition.minimumBreakAfterMinutes > 1440
+      definition.minimumBreakAfterMinutes > 1440 ||
+      !Number.isFinite(unclosedDayPenaltyMinutes(definition)) ||
+      unclosedDayPenaltyMinutes(definition) < 0 ||
+      unclosedDayPenaltyMinutes(definition) > 720
     ) {
       return "Une durée configurée n’est pas valide.";
     }
@@ -589,18 +593,24 @@ export function WorkPolicyConfigurator({
             <details className="work-policy-advanced">
               <summary>
                 <span><Sparkles size={17} /> Options avancées</span>
-                <small>Heures supplémentaires, repos et arrondis</small>
+                <small>Repos et arrondis</small>
                 <ChevronDown size={17} />
               </summary>
               <div className="work-policy-advanced-content">
-                <label className="work-policy-check">
-                  <input type="checkbox" checked={definition.overtimeEnabled} onChange={(event) => setDefinition({ ...definition, overtimeEnabled: event.target.checked, overtimeApprovalRequired: event.target.checked ? definition.overtimeApprovalRequired : false })} />
-                  <span><strong>Suivre les heures supplémentaires</strong><small>Les dépassements seront distingués du temps normal.</small></span>
-                </label>
-                {definition.overtimeEnabled && (
+                {definition.mode !== "attendance" && (
                   <label className="work-policy-check">
-                    <input type="checkbox" checked={definition.overtimeApprovalRequired} onChange={(event) => setDefinition({ ...definition, overtimeApprovalRequired: event.target.checked })} />
-                    <span><strong>Demander une validation</strong><small>Un administrateur confirme les heures supplémentaires.</small></span>
+                    <input
+                      type="checkbox"
+                      checked={definition.breakOverrunDeductionEnabled ?? false}
+                      onChange={(event) => setDefinition({
+                        ...definition,
+                        breakOverrunDeductionEnabled: event.target.checked,
+                      })}
+                    />
+                    <span>
+                      <strong>Déduire les dépassements de pause des soldes</strong>
+                      <small>Désactivé par défaut : le dépassement reste visible, sans réduire les soldes.</small>
+                    </span>
                   </label>
                 )}
                 <div className="work-policy-fields">
@@ -620,6 +630,28 @@ export function WorkPolicyConfigurator({
                       </select>
                     </div>
                   </label>
+                  {definition.mode === "fixed" && (
+                    <label className="wide">
+                      <span>Pénalité si le départ est oublié</span>
+                      <div>
+                        <TimerReset size={17} />
+                        <input
+                          type="number"
+                          min={0}
+                          max={720}
+                          step={5}
+                          value={unclosedDayPenaltyMinutes(definition)}
+                          onChange={(event) =>
+                            setDefinition({
+                              ...definition,
+                              unclosedDayPenaltyMinutes: Number(event.target.value),
+                            })
+                          }
+                        />
+                        <em>min</em>
+                      </div>
+                    </label>
+                  )}
                 </div>
               </div>
             </details>
@@ -645,8 +677,13 @@ export function WorkPolicyConfigurator({
                     : "Rappels automatiques désactivés"}
                 </li>
               )}
-              <li><Check size={14} /> {definition.overtimeEnabled ? "Heures supplémentaires suivies" : "Pas de suivi des dépassements"}</li>
-              <li><Check size={14} /> Les anciennes périodes restent inchangées</li>
+              <li><Check size={14} /> {definition.overtimeEnabled ? "Temps supplémentaire suivi" : "Pas de suivi des dépassements"}</li>
+              {definition.mode === "fixed" && (
+                <li>
+                  <Check size={14} /> Départ oublié : {unclosedDayPenaltyMinutes(definition)} min retirées
+                </li>
+              )}
+              <li><Check size={14} /> Chaque journée garde la règle qui lui était applicable</li>
             </ul>
             <label className="work-policy-effective">
               <span><CalendarCheck2 size={16} /> Appliquer à partir du</span>

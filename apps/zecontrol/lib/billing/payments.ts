@@ -63,10 +63,10 @@ function cleanSiteUrl(fallbackOrigin?: string) {
   );
   const vercelDeploymentOrigin = normalizeOrigin(process.env.VERCEL_URL);
   const candidates = [
-    requestOrigin,
     configuredOrigin,
     vercelProductionOrigin,
     vercelDeploymentOrigin,
+    requestOrigin,
   ].filter((value): value is string => Boolean(value));
 
   if (process.env.PAYDUNYA_MODE === "production") {

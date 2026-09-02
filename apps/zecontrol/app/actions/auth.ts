@@ -1,12 +1,12 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { composeAuthEmail, LOGIN_IDENTIFIER_PATTERN } from "@/lib/identifiers";
 import { getZeControlAccess } from "@/lib/supabase/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { applicationOrigin } from "@/lib/application-origin";
 
 export type AuthState = {
   message?: string;
@@ -39,16 +39,6 @@ const passwordSchema = z
     message: "Les deux mots de passe ne correspondent pas.",
     path: ["confirmPassword"],
   });
-
-async function requestOrigin() {
-  const requestHeaders = await headers();
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  const host =
-    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  return host
-    ? `${protocol}://${host}`
-    : process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001";
-}
 
 function accessDestination(
   access: Awaited<ReturnType<typeof getZeControlAccess>>,
@@ -132,7 +122,7 @@ export async function loginAction(
 
 export async function googleSignupAction() {
   const supabase = await createClient();
-  const origin = await requestOrigin();
+  const origin = applicationOrigin();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {

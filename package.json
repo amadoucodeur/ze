@@ -17,6 +17,8 @@
     "lint:portal": "bun --cwd apps/portal lint",
     "lint:zerecruit": "bun --cwd apps/zerecruit lint",
     "lint:zecontrol": "bun --cwd apps/zecontrol lint",
+    "test:zecontrol": "bun --cwd apps/zecontrol test",
+    "test": "bun run test:zecontrol",
     "lint": "bun run lint:portal && bun run lint:zerecruit && bun run lint:zecontrol",
     "build": "bun run build:portal && bun run build:zerecruit && bun run build:zecontrol"
   }

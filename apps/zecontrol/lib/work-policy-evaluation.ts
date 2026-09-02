@@ -1,6 +1,7 @@
 import {
   scheduleForDay,
   scheduledMinutes,
+  unclosedDayPenaltyMinutes,
   workReminderSettings,
   type WorkPolicyDefinition,
   type WorkDaySchedule,
@@ -39,14 +40,29 @@ export type WorkdayEvaluation = {
   breakOverrunMinutes: number;
   lateMinutes: number;
   earlyDepartureMinutes: number;
+  rawOvertimeMinutes: number;
   overtimeMinutes: number;
+  overtimeApprovalStatus: "not_required" | "pending" | "approved" | "rejected";
   differenceMinutes: number;
-  label: "Conforme" | "À venir" | "Retard" | "Départ anticipé" | "Heures supplémentaires" | "Incomplète" | "Non planifiée";
+  automaticClosure: "none" | "scheduled_end" | "break_start";
+  automaticClosurePenaltyMinutes: number;
+  label: "Conforme" | "À venir" | "Retard" | "Départ anticipé" | "Temps supplémentaire" | "Incomplète" | "Clôture automatique" | "Non planifiée";
 };
 
 function timeMinutes(value: string) {
   const [hours, minutes] = value.split(":").map(Number);
   return hours * 60 + minutes;
+}
+
+function balanceDifference(
+  workedMinutes: number,
+  expectedMinutes: number,
+  breakOverrunMinutes: number,
+  deductBreakOverrun: boolean,
+) {
+  const rawDifference = workedMinutes - expectedMinutes;
+  if (deductBreakOverrun || rawDifference >= 0) return rawDifference;
+  return rawDifference + Math.min(breakOverrunMinutes, Math.abs(rawDifference));
 }
 
 function zonedParts(date: Date, timeZone: string) {
@@ -74,17 +90,26 @@ export function weekdayForDate(dateKey: string) {
   return day === 0 ? 7 : day;
 }
 
-function validEvents(events: EvaluatedClockingEvent[]) {
+function validEvents(events: EvaluatedClockingEvent[], roundingMinutes = 0) {
+  const interval = roundingMinutes * 60_000;
   return [...events]
     .filter(
       (event) =>
         event.event_status === "accepted" || event.event_status === "pending",
     )
+    .map((event) => interval > 0
+      ? { ...event, pointed_at: new Date(Math.round(+new Date(event.pointed_at) / interval) * interval).toISOString() }
+      : event)
     .sort((a, b) => +new Date(a.pointed_at) - +new Date(b.pointed_at));
 }
 
-function durations(events: EvaluatedClockingEvent[], now: Date) {
-  const chronological = validEvents(events);
+function durations(
+  events: EvaluatedClockingEvent[],
+  now: Date,
+  includeOpenSegments = true,
+  roundingMinutes = 0,
+) {
+  const chronological = validEvents(events, roundingMinutes);
   let workStartedAt: number | null = null;
   let pauseStartedAt: number | null = null;
   let worked = 0;
@@ -119,10 +144,10 @@ function durations(events: EvaluatedClockingEvent[], now: Date) {
   }
 
   const last = chronological.at(-1);
-  if (workStartedAt !== null && last?.type !== "end") {
+  if (includeOpenSegments && workStartedAt !== null && last?.type !== "end") {
     worked += Math.max(0, +now - workStartedAt);
   }
-  if (pauseStartedAt !== null && last?.type === "break") {
+  if (includeOpenSegments && pauseStartedAt !== null && last?.type === "break") {
     paused += Math.max(0, +now - pauseStartedAt);
   }
 
@@ -352,31 +377,66 @@ export function evaluateWorkday({
   date,
   now,
   timeZone,
+  overtimeReviewStatus,
 }: {
   definition: WorkPolicyDefinition;
   events: EvaluatedClockingEvent[];
   date: string;
   now: Date;
   timeZone: string;
+  overtimeReviewStatus?: "pending" | "approved" | "rejected";
 }): WorkdayEvaluation {
+  const localNow = zonedParts(now, timeZone);
+  const isCurrentDay = date === localNow.date;
+  const isPastDay = date < localNow.date;
   const schedule = scheduleForDay(definition, weekdayForDate(date));
-  const result = durations(events, now);
+  const result = durations(events, now, isCurrentDay, definition.roundingMinutes);
+  const last = result.events.at(-1);
+  const pastDayOnBreak = Boolean(isPastDay && last?.type === "break");
+  const pastDayStillWorking = Boolean(
+    isPastDay && (last?.type === "start" || last?.type === "resume"),
+  );
   if (!schedule || definition.mode !== "fixed") {
+    const expectedMinutes =
+      definition.mode === "flexible" && schedule
+        ? Math.round(definition.weeklyTargetMinutes / Math.max(1, definition.days.length))
+        : 0;
+    const rawOvertimeMinutes = definition.mode === "flexible"
+      ? Math.max(0, result.workedMinutes - expectedMinutes)
+      : 0;
+    const breakOverrunMinutes = schedule
+      ? Math.max(0, result.pauseMinutes - schedule.breakMinutes)
+      : 0;
+    const overtimeApprovalStatus = rawOvertimeMinutes === 0
+      ? "not_required"
+      : overtimeReviewStatus ?? "pending";
     return {
       schedule,
-      expectedMinutes:
-        definition.mode === "flexible"
-          ? Math.round(definition.weeklyTargetMinutes / Math.max(1, definition.days.length))
-          : 0,
+      expectedMinutes,
       workedMinutes: result.workedMinutes,
       pauseMinutes: result.pauseMinutes,
       arrivalLateMinutes: 0,
-      breakOverrunMinutes: 0,
+      breakOverrunMinutes,
       lateMinutes: 0,
       earlyDepartureMinutes: 0,
-      overtimeMinutes: 0,
-      differenceMinutes: result.workedMinutes,
-      label: schedule ? "Conforme" : "Non planifiée",
+      rawOvertimeMinutes,
+      overtimeMinutes: rawOvertimeMinutes,
+      overtimeApprovalStatus,
+      differenceMinutes: balanceDifference(
+        result.workedMinutes,
+        expectedMinutes,
+        breakOverrunMinutes,
+        definition.breakOverrunDeductionEnabled ?? false,
+      ),
+      automaticClosure: pastDayOnBreak ? "break_start" : "none",
+      automaticClosurePenaltyMinutes: 0,
+      label: pastDayOnBreak
+        ? "Clôture automatique"
+        : pastDayStillWorking
+          ? "Incomplète"
+          : schedule
+            ? "Conforme"
+            : "Non planifiée",
     };
   }
 
@@ -399,17 +459,51 @@ export function evaluateWorkday({
       breakOverrunMinutes: 0,
       lateMinutes: 0,
       earlyDepartureMinutes: 0,
+      rawOvertimeMinutes: 0,
       overtimeMinutes: 0,
+      overtimeApprovalStatus: "not_required",
       differenceMinutes: -expectedMinutes,
+      automaticClosure: "none",
+      automaticClosurePenaltyMinutes: 0,
       label: upcoming ? "À venir" : "Incomplète",
     };
   }
   const startMinutes = firstStart
     ? zonedParts(new Date(firstStart.pointed_at), timeZone).minutes
     : null;
-  const endMinutes = lastEnd
+  let endMinutes = lastEnd
     ? zonedParts(new Date(lastEnd.pointed_at), timeZone).minutes
     : null;
+  let workedMinutes = result.workedMinutes;
+  let automaticClosure: WorkdayEvaluation["automaticClosure"] = "none";
+  let automaticClosurePenalty = 0;
+
+  if (pastDayOnBreak && last) {
+    automaticClosure = "break_start";
+    endMinutes = zonedParts(new Date(last.pointed_at), timeZone).minutes;
+  } else if (pastDayStillWorking && last) {
+    const lastMinutes = zonedParts(new Date(last.pointed_at), timeZone).minutes;
+    const scheduledStartForRange = timeMinutes(schedule.startTime);
+    let scheduledEndForRange = timeMinutes(schedule.endTime);
+    let lastMinutesForRange = lastMinutes;
+    if (scheduledEndForRange <= scheduledStartForRange) {
+      scheduledEndForRange += 24 * 60;
+      if (lastMinutesForRange < scheduledStartForRange) {
+        lastMinutesForRange += 24 * 60;
+      }
+    }
+    const inferredOpenMinutes = Math.max(
+      0,
+      scheduledEndForRange - lastMinutesForRange,
+    );
+    automaticClosurePenalty = unclosedDayPenaltyMinutes(definition);
+    workedMinutes = Math.max(
+      0,
+      workedMinutes + inferredOpenMinutes - automaticClosurePenalty,
+    );
+    automaticClosure = "scheduled_end";
+    endMinutes = timeMinutes(schedule.endTime);
+  }
   const arrivalLateMinutes =
     startMinutes === null
       ? 0
@@ -418,32 +512,47 @@ export function evaluateWorkday({
     0,
     result.pauseMinutes - schedule.breakMinutes,
   );
-  const lateMinutes = arrivalLateMinutes + breakOverrunMinutes;
+  // "Retard" is strictly the delayed start of service. A long pause is a
+  // distinct compliance indicator and must never inflate arrival lateness.
+  const lateMinutes = arrivalLateMinutes;
   const earlyDepartureMinutes =
     endMinutes === null ? 0 : Math.max(0, scheduledEnd - endMinutes);
-  const overtimeMinutes = definition.overtimeEnabled
-    ? Math.max(0, result.workedMinutes - expectedMinutes)
-    : 0;
-  const differenceMinutes = result.workedMinutes - expectedMinutes;
-  const last = result.events.at(-1);
+  const rawOvertimeMinutes = Math.max(0, workedMinutes - expectedMinutes);
+  const overtimeApprovalStatus = rawOvertimeMinutes === 0
+    ? "not_required"
+    : overtimeReviewStatus ?? "pending";
+  // Approval is an administrative review state, not an accounting gate.
+  // Detected overtime must remain visible in totals and balances immediately.
+  const overtimeMinutes = rawOvertimeMinutes;
+  const differenceMinutes = balanceDifference(
+    workedMinutes,
+    expectedMinutes,
+    breakOverrunMinutes,
+    definition.breakOverrunDeductionEnabled ?? false,
+  );
 
   let label: WorkdayEvaluation["label"] = "Conforme";
-  if (last && last.type !== "end") label = "Incomplète";
+  if (automaticClosure !== "none") label = "Clôture automatique";
+  else if (last && last.type !== "end") label = "Incomplète";
   else if (lateMinutes > 0) label = "Retard";
   else if (earlyDepartureMinutes > 0) label = "Départ anticipé";
-  else if (overtimeMinutes > 0) label = "Heures supplémentaires";
+  else if (overtimeMinutes > 0) label = "Temps supplémentaire";
 
   return {
     schedule,
     expectedMinutes,
-    workedMinutes: result.workedMinutes,
+    workedMinutes,
     pauseMinutes: result.pauseMinutes,
     arrivalLateMinutes,
     breakOverrunMinutes,
     lateMinutes,
     earlyDepartureMinutes,
+    rawOvertimeMinutes,
     overtimeMinutes,
+    overtimeApprovalStatus,
     differenceMinutes,
+    automaticClosure,
+    automaticClosurePenaltyMinutes: automaticClosurePenalty,
     label,
   };
 }

@@ -1,4 +1,12 @@
-export type ReportPeriod = "day" | "week" | "month" | "all" | "custom";
+export type ReportPeriod =
+  | "day"
+  | "yesterday"
+  | "week"
+  | "lastWeek"
+  | "month"
+  | "lastMonth"
+  | "all"
+  | "custom";
 
 export function dateKey(date: Date, timeZone?: string) {
   if (timeZone) {
@@ -20,11 +28,29 @@ export function defaultPeriodDates(period: ReportPeriod, reference = new Date(),
   const end = dateKey(reference, timeZone);
   if (period === "all") return { start: "", end };
   const start = new Date(`${end}T12:00:00`);
-  if (period === "week") {
+  if (period === "yesterday") {
+    start.setDate(start.getDate() - 1);
+    const yesterday = dateKey(start);
+    return { start: yesterday, end: yesterday };
+  }
+  if (period === "week" || period === "lastWeek") {
     const weekday = start.getDay() || 7;
     start.setDate(start.getDate() - weekday + 1);
-  } else if (period === "month") {
+    if (period === "lastWeek") {
+      start.setDate(start.getDate() - 7);
+      const previousWeekEnd = new Date(start);
+      previousWeekEnd.setDate(previousWeekEnd.getDate() + 6);
+      return { start: dateKey(start), end: dateKey(previousWeekEnd) };
+    }
+  } else if (period === "month" || period === "lastMonth") {
     start.setDate(1);
+    if (period === "lastMonth") {
+      start.setMonth(start.getMonth() - 1);
+      const previousMonthEnd = new Date(start);
+      previousMonthEnd.setMonth(previousMonthEnd.getMonth() + 1);
+      previousMonthEnd.setDate(0);
+      return { start: dateKey(start), end: dateKey(previousMonthEnd) };
+    }
   }
   return { start: dateKey(start), end };
 }

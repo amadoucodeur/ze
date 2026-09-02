@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createBillingCheckout } from "@/lib/billing/payments";
 import { getCurrentZeControlAccess } from "@/lib/supabase/access";
+import { applicationOrigin } from "@/lib/application-origin";
 
 export const runtime = "nodejs";
 
@@ -11,35 +12,11 @@ const checkoutSchema = z.object({
 function isSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return request.headers.get("sec-fetch-site") === "same-origin";
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const host = forwardedHost || request.headers.get("host");
   try {
-    return Boolean(host) && new URL(origin).host === host;
+    return new URL(origin).origin === applicationOrigin();
   } catch {
     return false;
   }
-}
-
-function requestOrigin(request: Request) {
-  const forwardedProtocol = request.headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim();
-  const forwardedHost = request.headers
-    .get("x-forwarded-host")
-    ?.split(",")[0]
-    ?.trim();
-  if (
-    forwardedHost &&
-    (forwardedProtocol === "https" || forwardedProtocol === "http")
-  ) {
-    try {
-      return new URL(`${forwardedProtocol}://${forwardedHost}`).origin;
-    } catch {
-      // Fall through to the URL normalized by Next.js.
-    }
-  }
-  return new URL(request.url).origin;
 }
 
 export async function POST(request: Request) {
@@ -81,7 +58,7 @@ export async function POST(request: Request) {
     const result = await createBillingCheckout({
       access,
       periodId: parsed.data.periodId,
-      fallbackOrigin: requestOrigin(request),
+      fallbackOrigin: applicationOrigin(),
     });
     return Response.json(result, {
       headers: { "Cache-Control": "no-store" },
