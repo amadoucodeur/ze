@@ -23,6 +23,7 @@ import {
   isClockingCorrectionValid,
   isCompleteBreakInsertionValid,
   missingClockingOptions,
+  pendingClockingRequestEvents,
   validMissingEventTypes,
   type ClockingEventType,
   type MissingClockingOption,
@@ -40,6 +41,7 @@ export type EditableClockingEvent = {
   id: string;
   type: EventType;
   pointed_at: string;
+  provisional?: boolean;
 };
 
 export type EventRequestIntent = {
@@ -47,6 +49,12 @@ export type EventRequestIntent = {
   kind: "correction" | "missing_event";
   eventId?: string;
   requestedAt?: string;
+};
+
+export type EventRequestSubmission = {
+  kind: "correction" | "missing_event" | "missing_break";
+  type: EventType;
+  pointedAt: string;
 };
 
 const eventLabels: Record<EventType, string> = {
@@ -135,6 +143,7 @@ export function EventRequestPanel({
   timeZone,
   initialIntent,
   onClose,
+  onSubmitted,
   showLauncher = true,
 }: {
   profileId: string;
@@ -142,6 +151,7 @@ export function EventRequestPanel({
   timeZone: string;
   initialIntent?: EventRequestIntent | null;
   onClose?: () => void;
+  onSubmitted?: (submission: EventRequestSubmission) => void;
   showLauncher?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
@@ -198,25 +208,43 @@ export function EventRequestPanel({
       setLoadingDay(true);
       setDayLoadFailed(false);
       setMessage(null);
-      const { data, error } = await supabase
-        .schema("zecontrol")
-        .from("events")
-        .select("id, type, pointed_at")
-        .eq("profile_id", profileId)
-        .in("event_status", ["accepted", "pending"])
-        .gte(
-          "pointed_at",
-          zonedDayBoundary(selectedDay, timeZone).toISOString(),
-        )
-        .lt(
-          "pointed_at",
-          zonedDayBoundary(nextDay(selectedDay), timeZone).toISOString(),
-        )
-        .order("pointed_at", { ascending: true });
+      const rangeStart = zonedDayBoundary(selectedDay, timeZone).toISOString();
+      const rangeEnd = zonedDayBoundary(nextDay(selectedDay), timeZone).toISOString();
+      const [eventsResult, requestsResult] = await Promise.all([
+        supabase
+          .schema("zecontrol")
+          .from("events")
+          .select("id, type, pointed_at")
+          .eq("profile_id", profileId)
+          .in("event_status", ["accepted", "pending"])
+          .gte("pointed_at", rangeStart)
+          .lt("pointed_at", rangeEnd)
+          .order("pointed_at", { ascending: true }),
+        supabase
+          .schema("zecontrol")
+          .from("event_change_requests")
+          .select("id, request_kind, requested_type, requested_pointed_at, requested_end_at")
+          .eq("profile_id", profileId)
+          .eq("status", "pending")
+          .in("request_kind", ["missing_event", "missing_break"])
+          .gte("requested_pointed_at", rangeStart)
+          .lt("requested_pointed_at", rangeEnd)
+          .order("requested_pointed_at", { ascending: true }),
+      ]);
       if (!active) return;
+      const error = eventsResult.error ?? requestsResult.error;
       const nextEvents = error
         ? []
-        : ((data ?? []) as EditableClockingEvent[]);
+        : [
+            ...((eventsResult.data ?? []) as EditableClockingEvent[]),
+            ...pendingClockingRequestEvents(
+              (requestsResult.data ?? []) as Parameters<typeof pendingClockingRequestEvents>[0],
+            ),
+          ].sort(
+            (left, right) =>
+              new Date(left.pointed_at).getTime() - new Date(right.pointed_at).getTime() ||
+              left.id.localeCompare(right.id),
+          );
       setDayEvents(nextEvents);
       setDayLoadFailed(Boolean(error));
       if (error) {
@@ -394,10 +422,12 @@ export function EventRequestPanel({
       return;
     }
 
-    const { error } = await supabase
+    const { data: createdRequest, error } = await supabase
       .schema("zecontrol")
       .from("event_change_requests")
-      .insert(payload);
+      .insert(payload)
+      .select("id, request_kind, requested_type, requested_pointed_at, requested_end_at")
+      .single();
 
     if (error) {
       setMessage({
@@ -415,13 +445,38 @@ export function EventRequestPanel({
     } else {
       setPendingCount((count) => count + 1);
       setReason("");
+      if (!correctionMode && createdRequest) {
+        const provisionalEvents = pendingClockingRequestEvents([
+          createdRequest as Parameters<typeof pendingClockingRequestEvents>[0][number],
+        ]);
+        setDayEvents((current) =>
+          [...current, ...provisionalEvents].sort(
+            (left, right) =>
+              new Date(left.pointed_at).getTime() - new Date(right.pointed_at).getTime() ||
+              left.id.localeCompare(right.id),
+          ),
+        );
+        const nextMoment = new Date(
+          new Date(payload.requested_end_at ?? payload.requested_pointed_at).getTime() +
+            5 * 60_000,
+        );
+        setRequestedTime(zonedInputValue(nextMoment, timeZone).time);
+        setSelectedOptionId("");
+      }
       setMessage({
         type: "success",
         text:
           selectedOption?.kind === "complete_break"
-            ? "La pause complète a été envoyée en une seule demande."
-            : "Demande envoyée. Un administrateur va la vérifier.",
+            ? "Pause envoyée. Vous pouvez ajouter une autre demande sans attendre."
+            : "Demande envoyée. Vous pouvez en ajouter une autre sans attendre sa validation.",
       });
+      setPending(false);
+      onSubmitted?.({
+        kind: payload.request_kind,
+        type: payload.requested_type,
+        pointedAt: payload.requested_pointed_at,
+      });
+      return;
     }
     setPending(false);
   }
@@ -600,10 +655,10 @@ export function EventRequestPanel({
                           dayEvents.map((item) => {
                             const Icon = eventMeta[item.type].Icon;
                             return (
-                              <div className={`event-${item.type}`} key={item.id}>
+                              <div className={`event-${item.type} ${item.provisional ? "is-provisional" : ""}`} key={item.id}>
                                 <span><Icon size={15} /></span>
                                 <strong>{eventLabels[item.type]}</strong>
-                                <time>{eventTime(item.pointed_at, timeZone)}</time>
+                                <time>{eventTime(item.pointed_at, timeZone)}{item.provisional ? " · En attente" : ""}</time>
                               </div>
                             );
                           })
@@ -708,7 +763,7 @@ export function EventRequestPanel({
               )}
 
               <footer>
-                <p><Clock3 size={15} /> Aucun changement avant validation.</p>
+                <p><Clock3 size={15} /> Plusieurs demandes peuvent être envoyées sans attendre leur validation.</p>
                 <button type="submit" disabled={pending || loadingDay || !sequenceIsValid}>
                   {pending ? <LoaderCircle className="spin" size={18} /> : <Send size={17} />}
                   {pending

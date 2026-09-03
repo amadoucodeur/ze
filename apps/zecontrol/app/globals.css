@@ -2959,6 +2959,8 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
 .request-day-timeline > div > span { width: 25px; height: 25px; grid-row: 1 / 3; display: grid; place-items: center; border-radius: 8px; color: #087f7b; background: #dff1ed; }
 .request-day-timeline strong { color: #29444b; font-size: 9px; white-space: nowrap; }
 .request-day-timeline time { color: #75888d; font-size: 10px; font-weight: 800; }
+.request-day-timeline > div.is-provisional { border: 1px dashed #d2a74f; background: #fff8e8; }
+.request-day-timeline > div.is-provisional time { color: #8a651c; }
 .request-day-timeline p { margin: 4px; color: #829297; font-size: 10px; }
 .request-action-cards button.event-complete-break > span { color: #9d631f; background: #ffedce; }
 .request-day-time-fields { padding: 8px 10px; display: grid; grid-template-columns: 1fr .75fr; align-items: end; gap: 8px; border: 1px solid #6dcac2; border-radius: 13px; background: #f4fcfa; }

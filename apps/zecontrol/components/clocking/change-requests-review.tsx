@@ -90,8 +90,10 @@ export function ChangeRequestsReview({ organisationId }: { organisationId: strin
         .limit(150);
       if (!active) return;
       if (!error && !historyResult.error) {
-        const typedRequests = [...pending, ...((historyResult.data ?? []) as ChangeRequest[])]
-          .sort((first, second) => second.created_at.localeCompare(first.created_at));
+        const typedRequests = [
+          ...pending.sort((first, second) => first.created_at.localeCompare(second.created_at)),
+          ...((historyResult.data ?? []) as ChangeRequest[]),
+        ];
         setRequests(typedRequests);
         const profileIds = [...new Set(typedRequests.flatMap((request) => [request.profile_id, request.requested_by]))];
         if (profileIds.length) {

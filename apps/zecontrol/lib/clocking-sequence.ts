@@ -6,6 +6,15 @@ export type SequencedClockingEvent = {
   id: string;
   type: ClockingEventType;
   pointed_at: string;
+  provisional?: boolean;
+};
+
+export type PendingClockingRequest = {
+  id: string;
+  request_kind: "missing_event" | "missing_break";
+  requested_type: ClockingEventType;
+  requested_pointed_at: string;
+  requested_end_at: string | null;
 };
 
 export type ClockingDayState = "empty" | "working" | "paused" | "closed";
@@ -74,6 +83,60 @@ export function clockingDayState(
   if (last.type === "end") return "closed";
   if (last.type === "break") return "paused";
   return "working";
+}
+
+export function previousOpenClockingDay(
+  events: SequencedClockingEvent[],
+  today: string,
+  timeZone: string,
+  pendingClosureDays: Iterable<string> = [],
+) {
+  const closureDays = new Set(pendingClosureDays);
+  const previousDays = [
+    ...new Set(
+      events
+        .map((event) => dateKey(new Date(event.pointed_at), timeZone))
+        .filter((day) => day < today),
+    ),
+  ].sort((left, right) => right.localeCompare(left));
+
+  const day = previousDays[0];
+  if (!day || closureDays.has(day)) return null;
+
+  const dayEvents = clockingEventsForDay(events, day, timeZone);
+  const last = dayEvents.at(-1);
+  return last?.type === "start" || last?.type === "resume"
+    ? { day, last }
+    : null;
+}
+
+export function pendingClockingRequestEvents(
+  requests: PendingClockingRequest[],
+): SequencedClockingEvent[] {
+  return requests.flatMap((request) => {
+    const first: SequencedClockingEvent = {
+      id: `request-${request.id}-start`,
+      type: request.request_kind === "missing_break"
+        ? "break"
+        : request.requested_type,
+      pointed_at: request.requested_pointed_at,
+      provisional: true,
+    };
+
+    if (request.request_kind !== "missing_break" || !request.requested_end_at) {
+      return [first];
+    }
+
+    return [
+      first,
+      {
+        id: `request-${request.id}-end`,
+        type: "resume" as const,
+        pointed_at: request.requested_end_at,
+        provisional: true,
+      },
+    ];
+  });
 }
 
 function completeBreakOptions(events: SequencedClockingEvent[]) {

@@ -36,7 +36,12 @@ import {
   currentWorkPolicyMessage,
   type BreakProgress,
 } from "@/lib/work-policy-evaluation";
-import { EventRequestPanel, type EventRequestIntent } from "./event-request-panel";
+import { previousOpenClockingDay } from "@/lib/clocking-sequence";
+import {
+  EventRequestPanel,
+  type EventRequestIntent,
+  type EventRequestSubmission,
+} from "./event-request-panel";
 
 type EventType = "start" | "break" | "resume" | "end";
 type EventStatus = "pending" | "accepted" | "rejected" | "cancelled";
@@ -191,6 +196,8 @@ export function PersonalClockingWorkspace({
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
   const [previousDayPromptOpen, setPreviousDayPromptOpen] = useState(false);
+  const [pendingClosureDays, setPendingClosureDays] = useState<string[]>([]);
+  const [resumeStartAfterClosure, setResumeStartAfterClosure] = useState(false);
   const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
   const [previousDayPolicyDefinition, setPreviousDayPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
   const [previousDayPolicyKey, setPreviousDayPolicyKey] = useState<string | null>(null);
@@ -212,7 +219,7 @@ export function PersonalClockingWorkspace({
   useEffect(() => {
     let active = true;
     async function load() {
-      const [eventsResult, configResult, workPolicyResult] = await Promise.all([
+      const [eventsResult, configResult, workPolicyResult, pendingClosuresResult] = await Promise.all([
         supabase
           .schema("zecontrol")
           .from("events")
@@ -232,6 +239,14 @@ export function PersonalClockingWorkspace({
             target_profile_id: profileId,
             target_work_date: currentDayKey,
           }),
+        supabase
+          .schema("zecontrol")
+          .from("event_change_requests")
+          .select("requested_pointed_at")
+          .eq("profile_id", profileId)
+          .eq("request_kind", "missing_event")
+          .eq("requested_type", "end")
+          .eq("status", "pending"),
       ]);
       if (!active) return;
       if (eventsResult.error || configResult.error) {
@@ -258,6 +273,17 @@ export function PersonalClockingWorkspace({
           isWorkPolicyDefinition(resolved?.definition)
             ? { ...resolved.definition, daySchedules: resolved.definition.daySchedules ?? {} }
             : null,
+        );
+        setPendingClosureDays(
+          pendingClosuresResult.error
+            ? []
+            : [
+                ...new Set(
+                  (pendingClosuresResult.data ?? []).map((request) =>
+                    dateKey(new Date(request.requested_pointed_at), timeZone),
+                  ),
+                ),
+              ],
         );
       }
       setLoading(false);
@@ -311,36 +337,12 @@ export function PersonalClockingWorkspace({
     .filter((event) => dateKey(new Date(event.pointed_at), timeZone) === selectedDay && (event.event_status === "accepted" || event.event_status === "pending"))
     .sort((a, b) => new Date(a.pointed_at).getTime() - new Date(b.pointed_at).getTime());
   const selectedDayMinutes = minutesForEvents(selectedDayEvents, now, timeZone);
-  const previousOpenDay = (() => {
-    const pastDays = [...new Set(
-      events
-        .filter(
-          (event) =>
-            (event.event_status === "accepted" || event.event_status === "pending") &&
-            dateKey(new Date(event.pointed_at), timeZone) < today,
-        )
-        .map((event) => dateKey(new Date(event.pointed_at), timeZone)),
-    )].sort((left, right) => right.localeCompare(left));
-
-    const day = pastDays[0];
-    if (!day) return null;
-    const dayEvents = events
-      .filter(
-        (event) =>
-          (event.event_status === "accepted" || event.event_status === "pending") &&
-          dateKey(new Date(event.pointed_at), timeZone) === day,
-      )
-      .sort(
-        (left, right) =>
-          new Date(left.pointed_at).getTime() -
-          new Date(right.pointed_at).getTime(),
-      );
-    const last = dayEvents.at(-1);
-    if (last?.type === "start" || last?.type === "resume") {
-      return { day, last };
-    }
-    return null;
-  })();
+  const previousOpenDay = previousOpenClockingDay(
+    editableEvents,
+    today,
+    timeZone,
+    pendingClosureDays,
+  );
   const previousOpenDayKey = previousOpenDay?.day ?? null;
   const previousClosurePolicy =
     previousDayPolicyKey === previousOpenDayKey
@@ -580,6 +582,28 @@ export function PersonalClockingWorkspace({
     }
   }
 
+  function handleEventRequestSubmitted(submission: EventRequestSubmission) {
+    const submittedDay = dateKey(new Date(submission.pointedAt), timeZone);
+    const resolvesPreviousDay =
+      resumeStartAfterClosure &&
+      submission.kind === "missing_event" &&
+      submission.type === "end" &&
+      submittedDay === previousOpenDay?.day;
+
+    if (!resolvesPreviousDay) return;
+
+    setPendingClosureDays((days) =>
+      days.includes(submittedDay) ? days : [...days, submittedDay],
+    );
+    setResumeStartAfterClosure(false);
+    setRequestIntent(null);
+    setFeedback({
+      type: "pending",
+      message: "Votre départ est en attente de validation. Vous pouvez commencer la nouvelle journée.",
+    });
+    void createEvent("start", true);
+  }
+
   if (loading) return <div className="clocking-loading"><LoaderCircle className="spin" size={23} /> Préparation de votre espace...</div>;
 
   return (
@@ -600,7 +624,8 @@ export function PersonalClockingWorkspace({
                 Indiquez votre départ réel. Sinon, ZeControl clôturera cette journée
                 à l’heure prévue et retirera {previousClosurePolicy?.mode === "fixed"
                   ? `${unclosedDayPenaltyMinutes(previousClosurePolicy)} minutes`
-                  : "le temps non justifié"}.
+                  : "le temps non justifié"}. La demande sera vérifiée sans bloquer
+                l’ouverture d’aujourd’hui.
               </p>
             </div>
             <div className="previous-day-resolution-actions">
@@ -609,6 +634,7 @@ export function PersonalClockingWorkspace({
                 className="button button-ghost"
                 onClick={() => {
                   setPreviousDayPromptOpen(false);
+                  setResumeStartAfterClosure(true);
                   setRequestIntent({
                     key: `missing-end-${previousOpenDay.day}`,
                     kind: "missing_event",
@@ -624,6 +650,7 @@ export function PersonalClockingWorkspace({
                   className="button button-primary"
                   onClick={() => {
                     setPreviousDayPromptOpen(false);
+                    setResumeStartAfterClosure(false);
                     void createEvent("start", true);
                   }}
                 >
@@ -704,7 +731,19 @@ export function PersonalClockingWorkspace({
           </div>
           {selectedDay === today && (isWorking || isPaused) && <div className={`agent-live-strip ${isPaused ? "paused" : "working"}`}><span><i /> {isPaused ? "Pause en cours" : "Temps en cours"}</span><strong>{durationLabel(todayMinutes)}</strong></div>}
         </section>
-        <EventRequestPanel key={requestIntent?.key ?? "agent-request-dialog"} profileId={profileId} events={editableEvents} timeZone={timeZone} initialIntent={requestIntent} onClose={() => setRequestIntent(null)} showLauncher={false} />
+        <EventRequestPanel
+          key={requestIntent?.key ?? "agent-request-dialog"}
+          profileId={profileId}
+          events={editableEvents}
+          timeZone={timeZone}
+          initialIntent={requestIntent}
+          onClose={() => {
+            setResumeStartAfterClosure(false);
+            setRequestIntent(null);
+          }}
+          onSubmitted={handleEventRequestSubmitted}
+          showLauncher={false}
+        />
         {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Voir mon activité</strong><small>Historique, repères et exports</small></span><ArrowRight size={16} /></Link>}
       </section>}
 
