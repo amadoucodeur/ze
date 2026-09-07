@@ -11,6 +11,7 @@ export type WorkReminderSettings = {
   arrivalEnabled: boolean;
   breakDueEnabled: boolean;
   breakEndEnabled: boolean;
+  departureEnabled: boolean;
   followUpEnabled: boolean;
   warningPercent: number;
   arrivalLeadMinutes: number;
@@ -22,6 +23,7 @@ export const defaultWorkReminderSettings: WorkReminderSettings = {
   arrivalEnabled: true,
   breakDueEnabled: true,
   breakEndEnabled: true,
+  departureEnabled: true,
   followUpEnabled: true,
   warningPercent: 85,
   arrivalLeadMinutes: 60,
@@ -122,6 +124,7 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
       arrivalEnabled: false,
       breakDueEnabled: false,
       breakEndEnabled: false,
+      departureEnabled: false,
     },
   },
 };
@@ -204,6 +207,8 @@ export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefin
           typeof candidate.reminders.breakDueEnabled === "boolean") &&
         (candidate.reminders.breakEndEnabled === undefined ||
           typeof candidate.reminders.breakEndEnabled === "boolean") &&
+        (candidate.reminders.departureEnabled === undefined ||
+          typeof candidate.reminders.departureEnabled === "boolean") &&
         (candidate.reminders.followUpEnabled === undefined ||
           typeof candidate.reminders.followUpEnabled === "boolean") &&
         (candidate.reminders.warningPercent === undefined ||

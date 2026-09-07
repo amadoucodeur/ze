@@ -2,11 +2,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Notifications de rappel
 
-Les rappels sont évalués directement dans la PWA, sans cron ni planificateur
-serveur. Un collaborateur les active depuis **Profil** et peut immédiatement
-envoyer une notification de test. Ils sont affichés tant qu’une page ZeControl
-reste ouverte. Sur iPhone, ZeControl doit d’abord être installé sur l’écran
-d’accueil pour utiliser les notifications système.
+Un collaborateur active ou désactive les rappels depuis **Profil** et peut
+immédiatement envoyer une notification de test. Avec Web Push configuré, les
+rappels sont envoyés même lorsque ZeControl est fermé. Le contrôle local reste
+un secours lorsqu’une page du tableau de bord est ouverte. Sur iPhone,
+ZeControl doit d’abord être installé sur l’écran d’accueil.
+
+La configuration de production, volontairement courte, est documentée dans
+[`docs/notifications/WEB_PUSH.md`](docs/notifications/WEB_PUSH.md).
 
 ## Getting Started
 

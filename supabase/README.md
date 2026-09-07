@@ -12,6 +12,11 @@ du socle historique ZeRecruit déjà présent dans le projet Supabase. Pour une
 reconstruction locale totalement vierge, exporter d’abord ce socle depuis le
 projet lié, puis exécuter `supabase db reset` avec Docker actif.
 
+Le Web Push ZeControl utilise le job Cron
+`zecontrol-push-dispatch-every-3-minutes`. Il reste inactif tant que les secrets
+Vault `zecontrol_site_url` et `zecontrol_notification_dispatch_secret` ne sont
+pas configurés.
+
 Validation recommandée avant déploiement :
 
 1. `bun run test`

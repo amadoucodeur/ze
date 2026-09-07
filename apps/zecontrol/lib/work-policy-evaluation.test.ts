@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { defaultWorkPolicies } from "./work-policy";
-import { evaluateWorkday } from "./work-policy-evaluation";
+import {
+  currentWorkPolicyReminder,
+  evaluateWorkday,
+} from "./work-policy-evaluation";
 
 const definition = {
   ...defaultWorkPolicies.fixed,
@@ -106,5 +109,62 @@ describe("evaluateWorkday advanced rules", () => {
     expect(result.workedMinutes).toBe(450);
     expect(result.breakOverrunMinutes).toBe(30);
     expect(result.differenceMinutes).toBe(-30);
+  });
+});
+
+describe("currentWorkPolicyReminder", () => {
+  it("reminds an agent to clock out after the scheduled end", () => {
+    const reminder = currentWorkPolicyReminder({
+      definition: { ...definition, roundingMinutes: 0 },
+      events: [
+        {
+          type: "start",
+          event_status: "accepted",
+          pointed_at: "2026-08-31T08:00:00.000Z",
+        },
+      ],
+      now: new Date("2026-08-31T17:12:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    });
+
+    expect(reminder?.key).toBe("departure-overdue-0");
+    expect(reminder?.title).toBe("Départ non pointé depuis 12 min");
+  });
+
+  it("does not remind an agent who already clocked out", () => {
+    const reminder = currentWorkPolicyReminder({
+      definition: { ...definition, roundingMinutes: 0 },
+      events,
+      now: new Date("2026-08-31T18:12:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    });
+
+    expect(reminder).toBeNull();
+  });
+
+  it("respects the departure reminder setting", () => {
+    const reminder = currentWorkPolicyReminder({
+      definition: {
+        ...definition,
+        roundingMinutes: 0,
+        reminders: {
+          ...defaultWorkPolicies.fixed.reminders,
+          breakDueEnabled: false,
+          breakEndEnabled: false,
+          departureEnabled: false,
+        },
+      },
+      events: [
+        {
+          type: "start",
+          event_status: "accepted",
+          pointed_at: "2026-08-31T08:00:00.000Z",
+        },
+      ],
+      now: new Date("2026-08-31T17:12:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    });
+
+    expect(reminder).toBeNull();
   });
 });

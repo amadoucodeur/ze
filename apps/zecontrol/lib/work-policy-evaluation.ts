@@ -291,6 +291,24 @@ export function currentWorkPolicyReminder({
 
   if (!last || last.type === "end") return null;
 
+  if (currentMinutes >= end && reminders.departureEnabled) {
+    const overdue = currentMinutes - end;
+    return {
+      key: repeatedReminderKey(
+        "departure",
+        overdue,
+        reminders.repeatMinutes,
+        reminders.followUpEnabled,
+      ),
+      tone: overdue > definition.toleranceMinutes ? "attention" : "reminder",
+      title:
+        overdue === 0
+          ? "C’est l’heure de terminer"
+          : `Départ non pointé depuis ${overdue} min`,
+      message: "Si votre journée est terminée, pensez à pointer votre départ.",
+    };
+  }
+
   if (
     last.type === "break" &&
     schedule.breakMinutes > 0 &&

@@ -13,10 +13,12 @@ import { createClient } from "@/lib/supabase/client";
 import {
   isIosBrowser,
   isPwaStandalone,
-  REMINDER_ENABLED_KEY,
   REMINDER_SNOOZE_KEY,
+  remindersEnabledFor,
   setRemindersEnabled as persistRemindersEnabled,
   showZeControlNotification,
+  subscribeToZeControlPush,
+  unsubscribeFromZeControlPush,
 } from "@/lib/pwa-notifications";
 
 type InstallPromptEvent = Event & {
@@ -27,6 +29,7 @@ type InstallPromptEvent = Event & {
 const INSTALL_SNOOZE_KEY = "zecontrol-pwa-install-snoozed-until";
 const INSTALL_SNOOZE_DAYS = 30;
 const REMINDER_SENT_PREFIX = "zecontrol-pwa-reminder-sent:";
+const REMINDER_CHECK_INTERVAL = 3 * 60_000;
 
 function isStandalone() {
   return isPwaStandalone();
@@ -176,6 +179,7 @@ export function PwaLifecycle() {
   const [reminderEligible, setReminderEligible] = useState(false);
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [reminderProfileId, setReminderProfileId] = useState<string | null>(null);
   const [reminderMessage, setReminderMessage] = useState<{
     title: string;
     message: string;
@@ -280,20 +284,30 @@ export function PwaLifecycle() {
 
   useEffect(() => {
     if (!browserReady || !pathname.startsWith("/dashboard")) return;
-    try {
-      const enabled =
-        window.localStorage.getItem(REMINDER_ENABLED_KEY) === "true" &&
+    let active = true;
+    let timer: number | undefined;
+    async function prepareReminders() {
+      const { data } = await supabase.auth.getUser();
+      const profileId = data.user?.id ?? null;
+      if (!active) return;
+      setReminderProfileId(profileId);
+      const enabled = Boolean(
+        profileId &&
+        remindersEnabledFor(profileId) &&
         "Notification" in window &&
-        Notification.permission === "granted";
-      const snoozedUntil = Number(
-        window.localStorage.getItem(REMINDER_SNOOZE_KEY) ?? "0",
+        Notification.permission === "granted",
       );
-      if (enabled) {
-        const timer = window.setTimeout(
-          () => setRemindersEnabled(true),
-          0,
+      let snoozedUntil = 0;
+      try {
+        snoozedUntil = Number(
+          window.localStorage.getItem(REMINDER_SNOOZE_KEY) ?? "0",
         );
-        return () => window.clearTimeout(timer);
+      } catch {
+        // The permission prompt can still be shown for this session.
+      }
+      if (enabled) {
+        setRemindersEnabled(true);
+        return;
       }
       if (
         "Notification" in window &&
@@ -301,16 +315,37 @@ export function PwaLifecycle() {
         snoozedUntil <= Date.now() &&
         (!isIosDevice() || isStandalone())
       ) {
-        const timer = window.setTimeout(
+        timer = window.setTimeout(
           () => setReminderEligible(true),
           18_000,
         );
-        return () => window.clearTimeout(timer);
       }
-    } catch {
-      // Notifications remain optional when browser storage is unavailable.
     }
-  }, [browserReady, pathname]);
+    void prepareReminders();
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [browserReady, pathname, supabase]);
+
+  useEffect(() => {
+    if (!browserReady || !("serviceWorker" in navigator)) return;
+    let active = true;
+    async function detachPreviousAccount() {
+      const { data } = await supabase.auth.getUser();
+      const profileId = data.user?.id;
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const subscription = await registration?.pushManager.getSubscription();
+      if (!active || !subscription) return;
+      if (!profileId || !remindersEnabledFor(profileId)) {
+        await unsubscribeFromZeControlPush().catch(() => false);
+      }
+    }
+    void detachPreviousAccount();
+    return () => {
+      active = false;
+    };
+  }, [browserReady, pathname, supabase]);
 
   useEffect(() => {
     const syncReminderState = (event: Event) => {
@@ -338,8 +373,7 @@ export function PwaLifecycle() {
     let hideTimer: number | undefined;
 
     async function checkReminder() {
-      const { data: authData } = await supabase.auth.getUser();
-      const profileId = authData.user?.id;
+      const profileId = reminderProfileId;
       if (!profileId || !active) return;
 
       const { data: profile } = await supabase
@@ -439,7 +473,7 @@ export function PwaLifecycle() {
       const displayed = await showZeControlNotification(message.title, {
         body: message.message,
         tag: `zecontrol-${profileId}-${today}-${category}`,
-        data: { url: "/dashboard" },
+        data: { url: "/dashboard/pointage" },
       });
       if (displayed) {
         try {
@@ -451,7 +485,10 @@ export function PwaLifecycle() {
     }
 
     void checkReminder();
-    const interval = window.setInterval(() => void checkReminder(), 60_000);
+    const interval = window.setInterval(
+      () => void checkReminder(),
+      REMINDER_CHECK_INTERVAL,
+    );
     const onVisible = () => {
       if (document.visibilityState === "visible") void checkReminder();
     };
@@ -462,7 +499,7 @@ export function PwaLifecycle() {
       if (hideTimer) window.clearTimeout(hideTimer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [online, pathname, remindersEnabled, supabase]);
+  }, [online, pathname, reminderProfileId, remindersEnabled, supabase]);
 
   useEffect(() => {
     let timer: number | undefined;
@@ -499,12 +536,17 @@ export function PwaLifecycle() {
       const permission = await Notification.requestPermission();
       setReminderEligible(false);
       if (permission === "granted") {
-        persistRemindersEnabled(true);
+        const profileId = reminderProfileId ??
+          (await supabase.auth.getUser()).data.user?.id;
+        if (!profileId) return;
+        await subscribeToZeControlPush();
+        persistRemindersEnabled(true, profileId);
+        setReminderProfileId(profileId);
         setRemindersEnabled(true);
         await showZeControlNotification("Rappels activés", {
-          body: "ZeControl vous rappellera l’arrivée, la pause et la reprise au bon moment.",
+          body: "ZeControl vous rappellera l’arrivée, la pause, la reprise et le départ au bon moment.",
           tag: "zecontrol-reminders-enabled",
-          data: { url: "/dashboard" },
+          data: { url: "/dashboard/pointage" },
         });
       }
     } catch {

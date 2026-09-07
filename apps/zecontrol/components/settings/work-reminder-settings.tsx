@@ -10,7 +10,7 @@ import {
 const reminderOptions: Array<{
   key: keyof Pick<
     ReminderSettings,
-    "arrivalEnabled" | "breakDueEnabled" | "breakEndEnabled" | "followUpEnabled"
+    "arrivalEnabled" | "breakDueEnabled" | "breakEndEnabled" | "departureEnabled" | "followUpEnabled"
   >;
   title: string;
   description: string;
@@ -29,6 +29,11 @@ const reminderOptions: Array<{
     key: "breakEndEnabled",
     title: "Reprise après pause",
     description: "Avant la fin du temps autorisé, à la fin puis après.",
+  },
+  {
+    key: "departureEnabled",
+    title: "Fin de journée",
+    description: "À l’heure de fin puis si le départ reste non pointé.",
   },
   {
     key: "followUpEnabled",
@@ -101,7 +106,7 @@ export function WorkReminderSettings({
           <details className="work-reminder-advanced">
             <summary>
               <span><Clock3 size={15} /> Régler les seuils</span>
-              <small>85 % · toutes les 15 min</small>
+              <small>{settings.warningPercent} % · toutes les {settings.repeatMinutes} min</small>
               <ChevronDown size={15} />
             </summary>
             <div>
