@@ -80,7 +80,7 @@ function cleanSiteUrl(fallbackOrigin?: string) {
   return candidates[0] ?? "http://localhost:3001";
 }
 
-function assertOwnerAccess(
+function assertBillingManagerAccess(
   access: ZeControlContext | null,
 ): asserts access is ZeControlContext & {
   organisation: NonNullable<ZeControlContext["organisation"]>;
@@ -91,10 +91,10 @@ function assertOwnerAccess(
     access.status !== "ready" ||
     !access.organisation ||
     !access.productProfile ||
-    access.productProfile.role !== "owner"
+    !["owner", "admin"].includes(access.productProfile.role)
   ) {
     throw new Error(
-      "Seul le propriétaire peut gérer la facturation ZeControl.",
+      "Seuls le propriétaire et les administrateurs peuvent gérer la facturation ZeControl.",
     );
   }
 }
@@ -104,7 +104,7 @@ export async function createBillingCheckout(input: {
   periodId: string;
   fallbackOrigin?: string;
 }) {
-  assertOwnerAccess(input.access);
+  assertBillingManagerAccess(input.access);
   const access = input.access;
   const admin = createAdminClient();
 

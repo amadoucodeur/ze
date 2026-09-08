@@ -51,7 +51,7 @@ function DashboardNavigation({
       {organisationName && canManageTeam && (
         <DashboardNavLink href="/dashboard/equipe" label="Équipe" icon="team" />
       )}
-      {organisationName && role === "owner" && (
+      {organisationName && role !== "agent" && (
         <DashboardNavLink href="/dashboard/facturation" label="Facturation" icon="billing" />
       )}
       <DashboardNavLink href={role === "owner" ? "/dashboard/parametres/organisation" : "/dashboard/parametres/profil"} label="Paramètres" icon="settings" />
@@ -73,7 +73,7 @@ function DashboardMoreNavigation({
       {organisationName && (
         <DashboardNavLink href="/dashboard/demandes" label="Demandes" icon="requests" badge={pendingRequestCount} />
       )}
-      {organisationName && role === "owner" && (
+      {organisationName && role !== "agent" && (
         <DashboardNavLink href="/dashboard/facturation" label="Facturation" icon="billing" />
       )}
       <DashboardNavLink href={role === "owner" ? "/dashboard/parametres/organisation" : "/dashboard/parametres/profil"} label="Paramètres" icon="settings" />

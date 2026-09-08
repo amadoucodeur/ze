@@ -49,6 +49,7 @@ export type EventRequestIntent = {
   kind: "correction" | "missing_event";
   eventId?: string;
   requestedAt?: string;
+  mode?: "quick_closure";
 };
 
 export type EventRequestSubmission = {
@@ -156,6 +157,7 @@ export function EventRequestPanel({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const correctionMode = initialIntent?.kind === "correction";
+  const quickClosureMode = initialIntent?.mode === "quick_closure";
   const selectedEvent = correctionMode
     ? events.find((event) => event.id === initialIntent.eventId)
     : undefined;
@@ -253,7 +255,13 @@ export function EventRequestPanel({
           text: "Cette journée n’a pas pu être chargée. Réessayez.",
         });
       } else {
-        const nextOption = missingClockingOptions(nextEvents)[0];
+        const nextOptions = missingClockingOptions(nextEvents);
+        const nextOption = quickClosureMode
+          ? nextOptions.find(
+              (option) =>
+                option.kind === "single" && option.type === "end",
+            )
+          : nextOptions[0];
         setSelectedOptionId(nextOption?.id ?? "");
         if (nextOption?.kind === "complete_break") {
           setPauseStart(
@@ -268,6 +276,8 @@ export function EventRequestPanel({
               timeZone,
             ).time,
           );
+        } else if (quickClosureMode) {
+          setRequestedTime("");
         } else {
           const lastEvent = nextEvents.at(-1);
           const now = new Date(Date.now() - 5 * 60_000);
@@ -290,7 +300,15 @@ export function EventRequestPanel({
     return () => {
       active = false;
     };
-  }, [correctionMode, open, profileId, selectedDay, supabase, timeZone]);
+  }, [
+    correctionMode,
+    open,
+    profileId,
+    quickClosureMode,
+    selectedDay,
+    supabase,
+    timeZone,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -309,8 +327,11 @@ export function EventRequestPanel({
     () => (dayLoadFailed ? [] : missingClockingOptions(dayEvents)),
     [dayEvents, dayLoadFailed],
   );
-  const selectedOption =
-    options.find((option) => option.id === selectedOptionId) ?? options[0];
+  const selectedOption = quickClosureMode
+    ? options.find(
+        (option) => option.kind === "single" && option.type === "end",
+      )
+    : options.find((option) => option.id === selectedOptionId) ?? options[0];
 
   const requestedDate = useMemo(
     () => zonedDateTime(`${selectedDay}T${requestedTime}`, timeZone),
@@ -443,8 +464,19 @@ export function EventRequestPanel({
                 : "La demande n’a pas pu être envoyée. Réessayez.",
       });
     } else {
+      const submission = {
+        kind: payload.request_kind,
+        type: payload.requested_type,
+        pointedAt: payload.requested_pointed_at,
+      };
       setPendingCount((count) => count + 1);
       setReason("");
+      if (quickClosureMode) {
+        setPending(false);
+        onSubmitted?.(submission);
+        closeDialog();
+        return;
+      }
       if (!correctionMode && createdRequest) {
         const provisionalEvents = pendingClockingRequestEvents([
           createdRequest as Parameters<typeof pendingClockingRequestEvents>[0][number],
@@ -471,11 +503,7 @@ export function EventRequestPanel({
             : "Demande envoyée. Vous pouvez en ajouter une autre sans attendre sa validation.",
       });
       setPending(false);
-      onSubmitted?.({
-        kind: payload.request_kind,
-        type: payload.requested_type,
-        pointedAt: payload.requested_pointed_at,
-      });
+      onSubmitted?.(submission);
       return;
     }
     setPending(false);
@@ -521,7 +549,7 @@ export function EventRequestPanel({
           }}
         >
           <section
-            className="event-request-dialog"
+            className={`event-request-dialog${quickClosureMode ? " is-quick-closure" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="event-request-title"
@@ -536,15 +564,32 @@ export function EventRequestPanel({
             </button>
             <header>
               <div className="request-dialog-symbol" aria-hidden="true">
-                {correctionMode ? <PenLine size={24} /> : <CalendarClock size={24} />}
+                {quickClosureMode ? (
+                  <LogOut size={24} />
+                ) : correctionMode ? (
+                  <PenLine size={24} />
+                ) : (
+                  <CalendarClock size={24} />
+                )}
               </div>
               <div>
-                <span><Sparkles size={14} /> Soumis à validation</span>
+                <span>
+                  <Sparkles size={14} />
+                  {quickClosureMode
+                    ? "Journée à terminer"
+                    : "Soumis à validation"}
+                </span>
                 <h2 id="event-request-title">
-                  {correctionMode ? "Corriger ce point" : "Ajouter un oubli"}
+                  {quickClosureMode
+                    ? "Renseigner mon départ"
+                    : correctionMode
+                      ? "Corriger ce point"
+                      : "Ajouter un oubli"}
                 </h2>
                 <p>
-                  {correctionMode
+                  {quickClosureMode
+                    ? "Vérifiez la courte chronologie, puis indiquez uniquement l’heure de fermeture manquante."
+                    : correctionMode
                     ? "Seule l’heure de ce pointage sera corrigée. Son action restera identique."
                     : "Choisissez d’abord la journée. ZeControl lit sa chronologie avant de proposer une action."}
                 </p>
@@ -552,7 +597,96 @@ export function EventRequestPanel({
             </header>
 
             <form onSubmit={(event) => void submitRequest(event)}>
-              {correctionMode && selectedEvent ? (
+              {quickClosureMode ? (
+                <>
+                  <div className="quick-closure-day">
+                    <CalendarClock size={19} />
+                    <span>
+                      <small>Journée concernée</small>
+                      <strong>
+                        {new Intl.DateTimeFormat("fr-FR", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          timeZone,
+                        }).format(
+                          zonedDateTime(`${selectedDay}T12:00`, timeZone),
+                        )}
+                      </strong>
+                    </span>
+                  </div>
+
+                  <div className="quick-closure-timeline">
+                    <small>Chronologie</small>
+                    {loadingDay ? (
+                      <div className="quick-closure-loading">
+                        <LoaderCircle className="spin" size={18} />
+                        Lecture de la journée…
+                      </div>
+                    ) : (
+                      <div className="request-day-timeline">
+                        {dayEvents.map((item) => {
+                          const Icon = eventMeta[item.type].Icon;
+                          return (
+                            <div
+                              className={`event-${item.type} ${item.provisional ? "is-provisional" : ""}`}
+                              key={item.id}
+                            >
+                              <span><Icon size={15} /></span>
+                              <strong>{eventLabels[item.type]}</strong>
+                              <time>
+                                {eventTime(item.pointed_at, timeZone)}
+                                {item.provisional ? " · En attente" : ""}
+                              </time>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {!loadingDay && selectedOption?.kind === "single" && (
+                    <label className="quick-closure-time">
+                      <span className="quick-closure-time-icon">
+                        <LogOut size={20} />
+                      </span>
+                      <span>
+                        <small>Fermeture restante</small>
+                        <strong>Heure réelle de départ</strong>
+                      </span>
+                      <input
+                        type="time"
+                        value={requestedTime}
+                        onChange={(event) => {
+                          setRequestedTime(event.target.value);
+                          setMessage(null);
+                        }}
+                        required
+                        aria-label="Heure réelle de départ"
+                      />
+                    </label>
+                  )}
+
+                  {!loadingDay && !selectedOption && !dayLoadFailed && (
+                    <div className="request-sequence-note" role="status">
+                      <LockKeyhole size={17} />
+                      <span>
+                        <strong>Cette journée ne peut plus être clôturée ici</strong>
+                        <small>Rechargez la page pour vérifier les derniers pointages.</small>
+                      </span>
+                    </div>
+                  )}
+                  {!loadingDay && selectedOption && !missingIsValid && (
+                    <div className="request-sequence-note" role="status">
+                      <Clock3 size={17} />
+                      <span>
+                        <strong>Vérifiez l’heure de départ</strong>
+                        <small>Elle doit être postérieure au dernier pointage de cette journée.</small>
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : correctionMode && selectedEvent ? (
                 <>
                   <div className="request-correction-flow event-correction">
                     <div className="request-original-event">
@@ -743,17 +877,19 @@ export function EventRequestPanel({
                 </>
               )}
 
-              <label className="request-field request-field-wide">
-                <span>Motif <em>facultatif</em></span>
-                <textarea
-                  rows={3}
-                  maxLength={500}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  placeholder="Ex. Pause déjeuner oubliée…"
-                />
-                <small>{reason.length}/500</small>
-              </label>
+              {!quickClosureMode && (
+                <label className="request-field request-field-wide">
+                  <span>Motif <em>facultatif</em></span>
+                  <textarea
+                    rows={3}
+                    maxLength={500}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    placeholder="Ex. Pause déjeuner oubliée…"
+                  />
+                  <small>{reason.length}/500</small>
+                </label>
+              )}
 
               {message && (
                 <div className={`request-message ${message.type}`}>
@@ -763,12 +899,19 @@ export function EventRequestPanel({
               )}
 
               <footer>
-                <p><Clock3 size={15} /> Plusieurs demandes peuvent être envoyées sans attendre leur validation.</p>
+                <p>
+                  <Clock3 size={15} />
+                  {quickClosureMode
+                    ? "Le départ sera transmis à un administrateur."
+                    : "Plusieurs demandes peuvent être envoyées sans attendre leur validation."}
+                </p>
                 <button type="submit" disabled={pending || loadingDay || !sequenceIsValid}>
                   {pending ? <LoaderCircle className="spin" size={18} /> : <Send size={17} />}
                   {pending
                     ? "Envoi..."
-                    : correctionMode
+                    : quickClosureMode
+                      ? "Valider mon départ"
+                      : correctionMode
                       ? "Demander la correction"
                       : selectedOption?.kind === "complete_break"
                         ? "Envoyer la pause"

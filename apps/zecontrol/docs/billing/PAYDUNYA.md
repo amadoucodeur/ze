@@ -39,7 +39,7 @@ Les champs configurables sont :
 
 ## Cycle et impayés
 
-La période est clôturée à la fin du mois local. Le propriétaire dispose par
+La période est clôturée à la fin du mois local. L’organisation dispose par
 défaut de sept jours pour payer. Après l’échéance, un nouveau pointage accepté
 est refusé jusqu’au règlement. Les données existantes restent conservées et
 consultables.
@@ -47,6 +47,12 @@ consultables.
 La clôture et le contrôle d’échéance sont aussi exécutés lors d’un nouveau
 pointage : la sécurité ne dépend donc pas de l’ouverture de l’écran de
 facturation.
+
+Le compte de facturation peut désactiver cette règle pour une organisation
+avec `billing_accounts.enforce_payment_deadlines = false`. Les factures restent
+dues et payables, mais elles n’ont pas de date d’échéance, ne passent jamais à
+`overdue` et ne suspendent pas les nouveaux pointages. Cette exception est
+conservée pour toutes les périodes futures de l’organisation.
 
 ## Variables serveur
 
@@ -72,7 +78,7 @@ et toute URL de callback locale ou non HTTPS en mode live.
 
 ## Parcours sécurisé
 
-1. Le propriétaire ouvre une période terminée.
+1. Le propriétaire ou un administrateur ouvre une période terminée.
 2. Le serveur relit le montant, le nombre d’utilisateurs et le prix unitaire.
 3. Une tentative de paiement immuable est créée.
 4. PayDunya reçoit une facture détaillée et renvoie son URL sécurisée.
@@ -84,6 +90,13 @@ et toute URL de callback locale ou non HTTPS en mode live.
 
 Le retour navigateur est un état d’interface, jamais une preuve suffisante de
 paiement.
+
+## Accès à la facturation
+
+Le propriétaire et les administrateurs peuvent consulter les périodes, les
+consommations, les montants, les statuts et les reçus de leur organisation.
+Ils peuvent tous ouvrir le parcours de règlement PayDunya. Les agents restent
+exclus de la facturation.
 
 ## Vérifications avant production
 

@@ -27,7 +27,7 @@ export default async function BillingReturnPage({
   const access = await getCurrentZeControlAccess();
   if (!access) redirect("/connexion");
   if (
-    access.productProfile?.role !== "owner" ||
+    !["owner", "admin"].includes(access.productProfile?.role ?? "") ||
     !access.organisation
   ) {
     redirect("/dashboard");

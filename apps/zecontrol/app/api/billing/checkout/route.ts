@@ -34,11 +34,13 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
-  if (access.productProfile?.role !== "owner") {
+  if (
+    !["owner", "admin"].includes(access.productProfile?.role ?? "")
+  ) {
     return Response.json(
       {
         message:
-          "Seul le propriétaire peut régler les factures de l’organisation.",
+          "Seuls le propriétaire et les administrateurs peuvent régler les factures de l’organisation.",
       },
       { status: 403 },
     );

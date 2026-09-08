@@ -95,7 +95,7 @@ export default async function BillingPage({
   if (
     access.status !== "ready" ||
     !access.organisation ||
-    access.productProfile?.role !== "owner"
+    !["owner", "admin"].includes(access.productProfile?.role ?? "")
   ) {
     redirect("/dashboard");
   }

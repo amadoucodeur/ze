@@ -105,9 +105,7 @@ export function previousOpenClockingDay(
 
   const dayEvents = clockingEventsForDay(events, day, timeZone);
   const last = dayEvents.at(-1);
-  return last?.type === "start" || last?.type === "resume"
-    ? { day, last }
-    : null;
+  return last && last.type !== "end" ? { day, last } : null;
 }
 
 export function pendingClockingRequestEvents(

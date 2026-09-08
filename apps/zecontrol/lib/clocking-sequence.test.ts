@@ -46,6 +46,20 @@ describe("previousOpenClockingDay", () => {
 
     expect(result).toBeNull();
   });
+
+  it("returns a previous day left open during a pause", () => {
+    const result = previousOpenClockingDay(
+      [
+        { id: "start", type: "start", pointed_at: "2026-09-02T08:00:00.000Z" },
+        { id: "break", type: "break", pointed_at: "2026-09-02T12:00:00.000Z" },
+      ],
+      "2026-09-03",
+      timeZone,
+    );
+
+    expect(result?.day).toBe("2026-09-02");
+    expect(result?.last.type).toBe("break");
+  });
 });
 
 describe("pendingClockingRequestEvents", () => {
