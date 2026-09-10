@@ -423,8 +423,8 @@ export function PersonalClockingWorkspace({
     });
   }
 
-  async function createEvent(type: EventType, skipPreviousDayCheck = false) {
-    if (type === "start" && previousOpenDay && !skipPreviousDayCheck) {
+  async function createEvent(type: EventType) {
+    if (type === "start" && previousOpenDay) {
       setResumeStartAfterClosure(true);
       setRequestIntent({
         key: `missing-end-${previousOpenDay.day}`,
@@ -562,9 +562,8 @@ export function PersonalClockingWorkspace({
     setRequestIntent(null);
     setFeedback({
       type: "pending",
-      message: "Votre départ est en attente de validation. Vous pouvez commencer la nouvelle journée.",
+      message: "Votre départ est en attente de validation. Appuyez de nouveau sur « Commencer ma journée » pour pointer aujourd’hui.",
     });
-    void createEvent("start", true);
   }
 
   if (loading) return <div className="clocking-loading"><LoaderCircle className="spin" size={23} /> Préparation de votre espace...</div>;
