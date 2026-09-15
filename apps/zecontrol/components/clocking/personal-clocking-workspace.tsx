@@ -295,14 +295,9 @@ export function PersonalClockingWorkspace({
     .filter((event) => event.event_status === "accepted" || event.event_status === "pending")
     .sort((a, b) => new Date(a.pointed_at).getTime() - new Date(b.pointed_at).getTime());
   const lastTodayEvent = todayValidEvents.at(-1);
-  const currentAction = nextEvent(lastTodayEvent);
   const isWorking = lastTodayEvent?.type === "start" || lastTodayEvent?.type === "resume";
   const isPaused = lastTodayEvent?.type === "break";
   const isCompletedToday = lastTodayEvent?.type === "end";
-  const currentCopy = isCompletedToday
-    ? { label: "Journée terminée", hint: "Votre départ est enregistré", Icon: Check }
-    : actionCopy(currentAction);
-  const CurrentIcon = currentCopy.Icon;
   const cancellationSeconds = lastTodayEvent
     ? Math.max(0, 30 - Math.floor((now.getTime() - new Date(lastTodayEvent.pointed_at).getTime()) / 1000))
     : 0;
@@ -318,7 +313,16 @@ export function PersonalClockingWorkspace({
         timeZone,
       })
     : null;
-  const breakProgress = workPolicyDefinition
+  const currentAction =
+    workPolicyMessage?.recommendedAction === "end" && (isWorking || isPaused)
+      ? "end"
+      : nextEvent(lastTodayEvent);
+  const currentCopy = isCompletedToday
+    ? { label: "Journée terminée", hint: "Votre départ est enregistré", Icon: Check }
+    : actionCopy(currentAction);
+  const CurrentIcon = currentCopy.Icon;
+  const breakProgress =
+    workPolicyDefinition && workPolicyMessage?.recommendedAction !== "end"
     ? currentBreakProgress({
         definition: workPolicyDefinition,
         events: todayEvents,
@@ -602,7 +606,9 @@ export function PersonalClockingWorkspace({
                 <small>{cooldownSeconds > 0 ? `Disponible dans ${cooldownSeconds} s` : currentCopy.hint}</small>
               </button>
             </div>
-            {(isWorking || isPaused) && <button className="agent-finish-button" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={16} /> Terminer ma journée</button>}
+            {(isWorking || isPaused) && currentAction !== "end" && <button className="agent-finish-button" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={16} /> Terminer ma journée</button>}
+            {currentAction === "end" && isWorking && <button className="agent-finish-button" type="button" onClick={() => void createEvent("break")} disabled={isPointingLocked}><Coffee size={16} /> Prendre une pause</button>}
+            {currentAction === "end" && isPaused && <button className="agent-finish-button" type="button" onClick={() => void createEvent("resume")} disabled={isPointingLocked}><RotateCcw size={16} /> Reprendre le travail</button>}
           </div>
 
           <div className="agent-trust-note"><ShieldCheck size={16} /><span>Heure et localisation contrôlées</span></div>
@@ -672,7 +678,9 @@ export function PersonalClockingWorkspace({
             <strong>{submitting === currentAction ? "Pointage en cours..." : cooldownSeconds > 0 ? "Pointage enregistré" : currentCopy.label}</strong>
             <small>{cooldownSeconds > 0 ? `Disponible dans ${cooldownSeconds} s` : currentCopy.hint}</small>
           </button>
-          {(isWorking || isPaused) && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
+          {(isWorking || isPaused) && currentAction !== "end" && <button className="clocking-end-action" type="button" onClick={() => void createEvent("end")} disabled={isPointingLocked}><LogOut size={17} /> Terminer ma journée <ArrowRight size={15} /></button>}
+          {currentAction === "end" && isWorking && <button className="clocking-end-action" type="button" onClick={() => void createEvent("break")} disabled={isPointingLocked}><Coffee size={17} /> Prendre une pause <ArrowRight size={15} /></button>}
+          {currentAction === "end" && isPaused && <button className="clocking-end-action" type="button" onClick={() => void createEvent("resume")} disabled={isPointingLocked}><RotateCcw size={17} /> Reprendre le travail <ArrowRight size={15} /></button>}
           <div className="clocking-assurance"><span className={locationReady ? "ready" : "missing"}><LocateFixed size={16} /> {locationReady ? "Localisation prête" : "Zone non configurée"}</span><span><Clock3 size={16} /> Heure fiable</span></div>
           {workPolicyMessage && !breakProgress && <div className={`manager-policy-message ${workPolicyMessage.tone}`} role="status"><BellRing size={16} /><span><strong>{workPolicyMessage.title}</strong><small>{workPolicyMessage.message}</small></span></div>}
           {breakProgress && <BreakCountdown progress={breakProgress} />}

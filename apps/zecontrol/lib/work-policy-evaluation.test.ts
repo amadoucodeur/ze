@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultWorkPolicies } from "./work-policy";
 import {
+  currentWorkPolicyMessage,
   currentWorkPolicyReminder,
   evaluateWorkday,
 } from "./work-policy-evaluation";
@@ -166,5 +167,46 @@ describe("currentWorkPolicyReminder", () => {
     });
 
     expect(reminder).toBeNull();
+  });
+});
+
+describe("currentWorkPolicyMessage", () => {
+  it("makes departure the recommended action after the scheduled end", () => {
+    const message = currentWorkPolicyMessage({
+      definition: { ...definition, roundingMinutes: 0 },
+      events: [
+        {
+          type: "start",
+          event_status: "accepted",
+          pointed_at: "2026-08-31T08:00:00.000Z",
+        },
+      ],
+      now: new Date("2026-08-31T17:12:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    });
+
+    expect(message?.recommendedAction).toBe("end");
+  });
+
+  it("still recommends departure when the agent is on pause", () => {
+    const message = currentWorkPolicyMessage({
+      definition: { ...definition, roundingMinutes: 0 },
+      events: [
+        {
+          type: "start",
+          event_status: "accepted",
+          pointed_at: "2026-08-31T08:00:00.000Z",
+        },
+        {
+          type: "break",
+          event_status: "accepted",
+          pointed_at: "2026-08-31T16:50:00.000Z",
+        },
+      ],
+      now: new Date("2026-08-31T17:12:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    });
+
+    expect(message?.recommendedAction).toBe("end");
   });
 });

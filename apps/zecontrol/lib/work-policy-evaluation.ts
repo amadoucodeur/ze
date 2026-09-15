@@ -17,6 +17,7 @@ export type WorkPolicyMessage = {
   tone: "info" | "reminder" | "attention" | "success";
   title: string;
   message: string;
+  recommendedAction?: "end";
 };
 
 export type WorkPolicyReminder = WorkPolicyMessage & {
@@ -662,6 +663,16 @@ export function currentWorkPolicyMessage({
     };
   }
 
+  if (currentMinutes >= end) {
+    const exceeded = currentMinutes - end;
+    return {
+      tone: "reminder",
+      title: exceeded > 0 ? `Votre service est terminé depuis ${exceeded} min` : "C’est l’heure de la fin de service",
+      message: "Terminez votre journée lorsque vous avez fini.",
+      recommendedAction: "end",
+    };
+  }
+
   if (last.type === "break") {
     const progress = currentBreakProgress({
       definition,
@@ -690,15 +701,6 @@ export function currentWorkPolicyMessage({
         progress.elapsedMinutes >= reminderAt ? "reminder" : "info",
       title: `${progress.remainingMinutes} min de pause restantes`,
       message: `${progress.elapsedMinutes} min écoulées sur ${schedule.breakMinutes} min autorisées.`,
-    };
-  }
-
-  if (currentMinutes >= end) {
-    const exceeded = currentMinutes - end;
-    return {
-      tone: "reminder",
-      title: exceeded > 0 ? `Votre service est terminé depuis ${exceeded} min` : "C’est l’heure de la fin de service",
-      message: "Terminez votre journée lorsque vous avez fini.",
     };
   }
 
