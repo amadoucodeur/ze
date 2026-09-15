@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  clockingEventsForDay,
   clockingDayState,
   isClockingCorrectionValid,
   isCompleteBreakInsertionValid,
@@ -169,6 +170,7 @@ export function EventRequestPanel({
         : new Date(Date.now() - 5 * 60_000);
     return zonedInputValue(initialMoment, timeZone);
   });
+  const [initialEvents] = useState(events);
   const [open, setOpen] = useState(Boolean(initialIntent));
   const [selectedDay, setSelectedDay] = useState(initialZonedMoment.day);
   const [requestedTime, setRequestedTime] = useState(initialZonedMoment.time);
@@ -234,15 +236,30 @@ export function EventRequestPanel({
           .order("requested_pointed_at", { ascending: true }),
       ]);
       if (!active) return;
-      const error = eventsResult.error ?? requestsResult.error;
+      const localDayEvents = clockingEventsForDay(
+        initialEvents,
+        selectedDay,
+        timeZone,
+      );
+      const canUseLocalQuickClosure =
+        quickClosureMode && localDayEvents.length > 0;
+      const error =
+        eventsResult.error && !canUseLocalQuickClosure
+          ? eventsResult.error
+          : requestsResult.error && !quickClosureMode
+            ? requestsResult.error
+            : null;
+      const persistedEvents = eventsResult.error
+        ? localDayEvents
+        : ((eventsResult.data ?? []) as EditableClockingEvent[]);
+      const provisionalEvents = requestsResult.error
+        ? []
+        : pendingClockingRequestEvents(
+            (requestsResult.data ?? []) as Parameters<typeof pendingClockingRequestEvents>[0],
+          );
       const nextEvents = error
         ? []
-        : [
-            ...((eventsResult.data ?? []) as EditableClockingEvent[]),
-            ...pendingClockingRequestEvents(
-              (requestsResult.data ?? []) as Parameters<typeof pendingClockingRequestEvents>[0],
-            ),
-          ].sort(
+        : [...persistedEvents, ...provisionalEvents].sort(
             (left, right) =>
               new Date(left.pointed_at).getTime() - new Date(right.pointed_at).getTime() ||
               left.id.localeCompare(right.id),
@@ -302,6 +319,7 @@ export function EventRequestPanel({
     };
   }, [
     correctionMode,
+    initialEvents,
     open,
     profileId,
     quickClosureMode,

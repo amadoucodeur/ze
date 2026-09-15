@@ -100,12 +100,15 @@ export function previousOpenClockingDay(
     ),
   ].sort((left, right) => right.localeCompare(left));
 
-  const day = previousDays[0];
-  if (!day || closureDays.has(day)) return null;
+  for (const day of previousDays) {
+    if (closureDays.has(day)) continue;
 
-  const dayEvents = clockingEventsForDay(events, day, timeZone);
-  const last = dayEvents.at(-1);
-  return last && last.type !== "end" ? { day, last } : null;
+    const dayEvents = clockingEventsForDay(events, day, timeZone);
+    const last = dayEvents.at(-1);
+    if (last && last.type !== "end") return { day, last };
+  }
+
+  return null;
 }
 
 export function pendingClockingRequestEvents(

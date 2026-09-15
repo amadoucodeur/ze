@@ -47,6 +47,35 @@ describe("previousOpenClockingDay", () => {
     expect(result).toBeNull();
   });
 
+  it("finds an unfinished day hidden behind a more recent closed day", () => {
+    const result = previousOpenClockingDay(
+      [
+        { id: "old-start", type: "start", pointed_at: "2026-09-01T08:00:00.000Z" },
+        { id: "recent-start", type: "start", pointed_at: "2026-09-02T08:00:00.000Z" },
+        { id: "recent-end", type: "end", pointed_at: "2026-09-02T17:00:00.000Z" },
+      ],
+      "2026-09-03",
+      timeZone,
+    );
+
+    expect(result?.day).toBe("2026-09-01");
+    expect(result?.last.id).toBe("old-start");
+  });
+
+  it("continues past a day whose departure request is pending", () => {
+    const result = previousOpenClockingDay(
+      [
+        { id: "old-start", type: "start", pointed_at: "2026-09-01T08:00:00.000Z" },
+        { id: "recent-start", type: "start", pointed_at: "2026-09-02T08:00:00.000Z" },
+      ],
+      "2026-09-03",
+      timeZone,
+      ["2026-09-02"],
+    );
+
+    expect(result?.day).toBe("2026-09-01");
+  });
+
   it("returns a previous day left open during a pause", () => {
     const result = previousOpenClockingDay(
       [
