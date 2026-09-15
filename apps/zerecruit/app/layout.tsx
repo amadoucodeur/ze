@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, Manrope } from "next/font/google";
+import "@ze/ui-foundations/brands.css";
 import "./globals.css";
 
 const displayFont = Manrope({

@@ -1,20 +1,16 @@
 import Link from "next/link";
+import { ZeRecruitLogo } from "@ze/ui-foundations/brands";
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
-  return (
-    <span className={`logo-symbol${compact ? " logo-symbol-compact" : ""}`} aria-hidden="true">
-      <span className="logo-layer logo-layer-one" />
-      <span className="logo-layer logo-layer-two" />
-      <span className="logo-face"><b>Z</b></span>
-    </span>
-  );
+  return <ZeRecruitLogo compact={compact} />;
 }
 
 export function BrandLogo({ variant = "dark" }: { variant?: "dark" | "light" }) {
   return (
     <Link href="/" className={`brand-logo brand-logo-${variant}`} aria-label="ZeRecruit — Accueil">
-      <BrandMark />
-      <span className="logo-word"><b>Ze</b><span>Recruit</span></span>
+      <ZeRecruitLogo inverse={variant === "light"} />
     </Link>
   );
 }
+
+export { ZeRecruitLogo };

@@ -15,4 +15,4 @@ Monorepo de la suite de produits Ze.
 - `packages/database` : types et contrats de données partagés à venir.
 - `supabase` : historique canonique des migrations du projet Supabase commun.
 
-Les dossiers historiques `zerecrut/` et `zecontrol/` sont temporairement conservés à la racine comme sources de migration et solution de retour arrière. Les applications canoniques du monorepo se trouvent sous `apps/`.
+Toutes les applications canoniques de la plateforme se trouvent sous `apps/`.

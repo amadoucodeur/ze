@@ -1,20 +1,22 @@
 {
-  "name": "zerecrut",
+  "name": "@ze/recruit",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
+    "@ze/ui-foundations": "workspace:*",
     "lucide-react": "^1.25.0",
     "mammoth": "^1.12.0",
-    "next": "16.2.10",
-    "pdfjs-dist": "^6.1.200",
+    "next": "16.3.5",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tesseract.js": "^7.0.0",
@@ -26,9 +28,10 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   },
   "ignoreScripts": [
     "sharp",
