@@ -606,7 +606,7 @@ export function EventRequestPanel({
                 </h2>
                 <p>
                   {quickClosureMode
-                    ? "Vérifiez la courte chronologie, puis indiquez uniquement l’heure de fermeture manquante."
+                    ? "Le pointage d’aujourd’hui reste enregistré. Indiquez l’heure réelle de départ de cette ancienne journée."
                     : correctionMode
                     ? "Seule l’heure de ce pointage sera corrigée. Son action restera identique."
                     : "Choisissez d’abord la journée. ZeControl lit sa chronologie avant de proposer une action."}

@@ -195,7 +195,6 @@ export function PersonalClockingWorkspace({
   const [feedback, setFeedback] = useState<{ type: "error" | "success" | "pending"; message: string } | null>(null);
   const [requestIntent, setRequestIntent] = useState<EventRequestIntent | null>(null);
   const [pendingClosureDays, setPendingClosureDays] = useState<string[]>([]);
-  const [resumeStartAfterClosure, setResumeStartAfterClosure] = useState(false);
   const [workPolicyDefinition, setWorkPolicyDefinition] = useState<WorkPolicyDefinition | null>(null);
   const actionGuardRef = useRef(false);
   const cooldownTimerRef = useRef<number | null>(null);
@@ -427,17 +426,18 @@ export function PersonalClockingWorkspace({
     });
   }
 
-  async function createEvent(type: EventType) {
-    if (type === "start" && previousOpenDay) {
-      setResumeStartAfterClosure(true);
+  function requestPreviousDayClosure() {
+    if (previousOpenDay) {
       setRequestIntent({
         key: `missing-end-${previousOpenDay.day}`,
         kind: "missing_event",
         requestedAt: previousOpenDay.last.pointed_at,
         mode: "quick_closure",
       });
-      return;
     }
+  }
+
+  async function createEvent(type: EventType) {
     if (actionGuardRef.current || submitting || !locationReady) return;
     actionGuardRef.current = true;
     setSubmitting(type);
@@ -478,6 +478,11 @@ export function PersonalClockingWorkspace({
         : created.event_status === "pending"
           ? { type: "pending", message: "Pointage enregistré et transmis à un administrateur pour vérification." }
           : { type: "error", message: "Pointage refusé : votre position ne correspond pas à la zone autorisée." });
+      // Today's arrival is saved first. An old departure request must never
+      // prevent this insert or require the employee to clock in a second time.
+      if (created.type === "start" && (created.event_status === "accepted" || created.event_status === "pending")) {
+        requestPreviousDayClosure();
+      }
     } catch (error) {
       const message = error instanceof Error
         ? error.message
@@ -552,7 +557,6 @@ export function PersonalClockingWorkspace({
   function handleEventRequestSubmitted(submission: EventRequestSubmission) {
     const submittedDay = dateKey(new Date(submission.pointedAt), timeZone);
     const resolvesPreviousDay =
-      resumeStartAfterClosure &&
       submission.kind === "missing_event" &&
       submission.type === "end" &&
       submittedDay === previousOpenDay?.day;
@@ -562,11 +566,10 @@ export function PersonalClockingWorkspace({
     setPendingClosureDays((days) =>
       days.includes(submittedDay) ? days : [...days, submittedDay],
     );
-    setResumeStartAfterClosure(false);
     setRequestIntent(null);
     setFeedback({
       type: "pending",
-      message: "Votre départ est en attente de validation. Appuyez de nouveau sur « Commencer ma journée » pour pointer aujourd’hui.",
+      message: "Votre départ oublié est en attente de validation. Le pointage d’aujourd’hui reste enregistré.",
     });
   }
 
@@ -646,21 +649,27 @@ export function PersonalClockingWorkspace({
           </div>
           {selectedDay === today && (isWorking || isPaused) && <div className={`agent-live-strip ${isPaused ? "paused" : "working"}`}><span><i /> {isPaused ? "Pause en cours" : "Temps en cours"}</span><strong>{durationLabel(todayMinutes)}</strong></div>}
         </section>
-        <EventRequestPanel
+        {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Voir mon activité</strong><small>Historique, repères et exports</small></span><ArrowRight size={16} /></Link>}
+      </section>}
+
+      {showClocking && <EventRequestPanel
           key={requestIntent?.key ?? "agent-request-dialog"}
           profileId={profileId}
           events={editableEvents}
           timeZone={timeZone}
           initialIntent={requestIntent}
           onClose={() => {
-            setResumeStartAfterClosure(false);
             setRequestIntent(null);
           }}
           onSubmitted={handleEventRequestSubmitted}
           showLauncher={false}
-        />
-        {activityHref && <Link className="agent-activity-link agent-activity-link-bottom" href={activityHref}><CalendarDays size={18} /><span><strong>Voir mon activité</strong><small>Historique, repères et exports</small></span><ArrowRight size={16} /></Link>}
-      </section>}
+        />}
+
+      {showClocking && todayValidEvents.length > 0 && previousOpenDay && (
+        <button className="agent-add-past-event" type="button" onClick={requestPreviousDayClosure}>
+          <PenLine size={16} /> Renseigner le départ oublié du {new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", timeZone }).format(new Date(previousOpenDay.last.pointed_at))}
+        </button>
+      )}
 
       {showClocking && mode === "manager" && <section className="clocking-hero">
         <header className="clocking-heading">

@@ -83,14 +83,21 @@ export function zonedDayBoundary(value: string, timeZone: string) {
 
 export function zonedDateTime(value: string, timeZone: string) {
   const [datePart, timePart = "00:00"] = value.split("T");
+  // Time inputs are empty while the user is choosing a value. Do not pass
+  // an incomplete date to Intl, which throws and unmounts the whole page.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}(?::\d{2})?$/.test(timePart)) {
+    return new Date(Number.NaN);
+  }
   const [year, month, day] = datePart.split("-").map(Number);
   const [hour, minute] = timePart.split(":").map(Number);
   if (
     !year ||
     !month ||
     !day ||
-    Number.isNaN(hour) ||
-    Number.isNaN(minute)
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour > 23 ||
+    minute > 59
   ) {
     return new Date(Number.NaN);
   }
