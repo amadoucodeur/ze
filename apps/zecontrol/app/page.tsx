@@ -5,6 +5,7 @@ import {
   Check,
   CircleCheck,
   CreditCard,
+  Download,
   Laptop,
   MapPin,
   Radio,
@@ -22,6 +23,7 @@ import { BillingCalculator } from "@/components/marketing/billing-calculator";
 
 const portalUrl = process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3002";
 const unitPrice = 300;
+const ANDROID_APK_URL = "/downloads/ZeControl.apk";
 
 const team = [
   { initials: "AK", name: "Awa Koné", time: "08:02", status: "À l’heure" },
@@ -69,6 +71,9 @@ export default function Home() {
               Voir comment ça marche
             </a>
           </div>
+          <a className="hero-android-link" href={ANDROID_APK_URL} download>
+            <Download size={16} /> Télécharger l’application Android
+          </a>
           <div className="trust-row" aria-label="Principaux avantages">
             <span><BadgeCheck size={16} /> 0 F à l’activation</span>
             <span><ShieldCheck size={16} /> Payez après utilisation</span>
@@ -266,6 +271,12 @@ export default function Home() {
             <small>Mobile</small>
             <h3>Pointer en quelques secondes</h3>
             <p>Une interface directe, pensée pour le terrain et les gestes rapides.</p>
+            <a className="device-android-link" href={ANDROID_APK_URL} download>
+              <Download size={15} /> Installer sur Android
+            </a>
+            <small className="device-android-note">
+              Avec des rappels de pointage, même sans connexion. Android vous demandera d’autoriser l’installation depuis votre navigateur.
+            </small>
           </article>
           <article className="featured-device">
             <span><Laptop size={27} /></span>

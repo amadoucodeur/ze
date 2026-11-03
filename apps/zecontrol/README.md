@@ -11,6 +11,11 @@ ZeControl doit d’abord être installé sur l’écran d’accueil.
 La configuration de production, volontairement courte, est documentée dans
 [`docs/notifications/WEB_PUSH.md`](docs/notifications/WEB_PUSH.md).
 
+## Application Android
+
+L’APK ZeControl et ses rappels locaux sont documentés dans
+[`android/README.md`](android/README.md).
+
 ## Getting Started
 
 First, run the development server:

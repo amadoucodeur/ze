@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZeControl</string>
+    <string name="reminder_channel_name">Rappels de pointage</string>
+    <string name="reminder_channel_description">Arrivée, pause, reprise et départ à pointer.</string>
+    <string name="reminder_action_clock">Pointer</string>
+    <string name="session_lost_title">Reconnectez-vous à ZeControl</string>
+    <string name="session_lost_message">Votre session a expiré. Vos rappels de pointage reprendront dès votre prochaine connexion.</string>
+    <string name="battery_title">Recevoir les rappels à l’heure</string>
+    <string name="battery_message">Pour ne manquer aucun rappel de pointage, autorisez ZeControl à fonctionner sans restriction de batterie. L’application reste très légère : elle ne fonctionne en arrière-plan que pour préparer vos rappels.</string>
+    <string name="battery_accept">Autoriser</string>
+    <string name="later">Plus tard</string>
+    <string name="location_off_title">Localisation désactivée</string>
+    <string name="location_off_message">Activez la localisation de votre téléphone pour pouvoir pointer.</string>
+    <string name="location_open_settings">Ouvrir les réglages</string>
+    <string name="google_in_browser">La connexion Google se poursuit dans votre navigateur.</string>
+    <string name="no_app_for_link">Aucune application ne peut ouvrir ce lien.</string>
+    <string name="file_saved">Fichier prêt : %1$s</string>
+    <string name="file_failed">Le fichier n’a pas pu être enregistré.</string>
+    <string name="file_open_with">Ouvrir le fichier</string>
+    <string name="webview_title">Mise à jour nécessaire</string>
+    <string name="webview_message">Le composant « Android System WebView » de ce téléphone est trop ancien pour ZeControl. Mettez-le à jour depuis le Play Store.</string>
+    <string name="webview_update">Mettre à jour</string>
+</resources>

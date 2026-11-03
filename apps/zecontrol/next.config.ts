@@ -44,6 +44,23 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        source: "/downloads/:file*.apk",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/vnd.android.package-archive",
+          },
+          {
+            key: "Content-Disposition",
+            value: "attachment",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache, must-revalidate",
+          },
+        ],
+      },
+      {
         source: "/offline.html",
         headers: [
           {

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hors connexion</title>
+<style>
+*{box-sizing:border-box}
+body{min-height:100vh;margin:0;padding:24px;display:grid;place-items:center;font-family:sans-serif;color:#17333c;background:#f4f1e9}
+main{width:min(420px,100%);padding:34px 28px;border:1px solid rgba(8,10,11,.08);border-radius:28px;background:#fff;text-align:center}
+h1{margin:0;color:#080a0b;font-size:28px}
+p{margin:13px 0 0;color:#64777c;font-size:15px;line-height:1.55}
+button{width:100%;min-height:52px;margin-top:26px;border:0;border-radius:999px;color:#fff;background:#080a0b;font:inherit;font-weight:800}
+small{margin-top:16px;display:block;color:#64777c;font-size:13px;line-height:1.45}
+</style>
+</head>
+<body>
+<main>
+<h1>Vous êtes hors connexion</h1>
+<p>ZeControl doit joindre le serveur pour garantir l’heure et la fiabilité de votre pointage.</p>
+<button type="button" onclick="location.href='native://retry'">Réessayer</button>
+<small>Vos rappels de pointage restent actifs. L’application reprendra toute seule dès le retour de la connexion.</small>
+</main>
+</body>
+</html>
