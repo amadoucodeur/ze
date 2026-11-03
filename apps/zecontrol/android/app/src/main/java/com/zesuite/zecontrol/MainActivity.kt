@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var showingOffline = false
     private var lastSiteUrl: String? = null
     private var backgroundedAt = 0L
+    @Volatile private var lastSyncAt = 0L
 
     private var pendingGeolocationOrigin: String? = null
     private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
@@ -84,7 +85,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             publishState()
             ReminderController.reconcile(this)
-            offerBatteryExemption()
+            continueSetup()
         }
 
     private val locationPermission =
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
             pendingGeolocationCallback = null
             pendingGeolocationOrigin = null
             if (granted) warnIfLocationOff()
+            continueSetup()
         }
 
     private val fileChooser =
@@ -286,13 +288,18 @@ class MainActivity : ComponentActivity() {
     private fun syncSoon(force: Boolean = false) {
         if (background.isShutdown) return
         background.execute {
-            runCatching { ReminderController.sync(this, force) }
+            val now = SystemClock.elapsedRealtime()
+            // Opening the app triggers several page events for the same state.
+            if (force || lastSyncAt == 0L || now - lastSyncAt > SYNC_SPACING_MS) {
+                lastSyncAt = now
+                runCatching { ReminderController.sync(this, force) }
+            }
             val session = ReminderController.currentSession()
             val snapshot = store.snapshot
             mainHandler.post {
                 if (session != null) syncReminderCard(session.profileId)
                 if (session != null && snapshot?.profileId == session.profileId && snapshot.eligible) {
-                    requestNotifications()
+                    continueSetup()
                 }
             }
         }
@@ -314,12 +321,26 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun requestNotifications() {
-        if (ReminderNotifier.canNotify(this)) {
-            offerBatteryExemption()
-            return
+    /**
+     * Asks once for what clocking needs, right after sign-in. Asked during the
+     * first clock-in, the location prompt would eat into the page's GPS timeout.
+     */
+    private fun continueSetup() {
+        if (isFinishing) return
+        when {
+            Build.VERSION.SDK_INT >= 33 && !ReminderNotifier.canNotify(this) &&
+                store.once(ReminderStore.FLAG_ASKED_NOTIFICATIONS) ->
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            !hasLocationPermission() && store.once(ReminderStore.FLAG_ASKED_LOCATION) ->
+                locationPermission.launch(LOCATION_PERMISSIONS)
+            else -> offerBatteryExemption()
         }
-        if (Build.VERSION.SDK_INT >= 33 && store.once(ReminderStore.FLAG_ASKED_NOTIFICATIONS)) {
+    }
+
+    private fun requestNotifications() {
+        if (!ReminderNotifier.canNotify(this) && Build.VERSION.SDK_INT >= 33 &&
+            store.once(ReminderStore.FLAG_ASKED_NOTIFICATIONS)
+        ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             publishState()
@@ -425,9 +446,7 @@ class MainActivity : ComponentActivity() {
             pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, false, false)
             pendingGeolocationOrigin = origin
             pendingGeolocationCallback = callback
-            locationPermission.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-            )
+            locationPermission.launch(LOCATION_PERMISSIONS)
         }
 
         override fun onShowFileChooser(
@@ -611,5 +630,10 @@ class MainActivity : ComponentActivity() {
         private const val SPLASH_LIMIT_MS = 3_500L
         private const val SLOW_LOAD_MS = 700L
         private const val STALE_PAGE_MS = 30 * 60_000L
+        private const val SYNC_SPACING_MS = 20_000L
+        private val LOCATION_PERMISSIONS = arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        )
     }
 }

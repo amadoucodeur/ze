@@ -50,6 +50,7 @@ class ReminderStore(context: Context) {
 
     companion object {
         const val FLAG_ASKED_NOTIFICATIONS = "asked_notifications"
+        const val FLAG_ASKED_LOCATION = "asked_location"
         const val FLAG_ASKED_BATTERY = "asked_battery"
         private const val KEY_SNAPSHOT = "snapshot"
         private const val KEY_DELIVERED = "delivered"
