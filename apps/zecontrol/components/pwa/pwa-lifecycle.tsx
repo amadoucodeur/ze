@@ -376,36 +376,16 @@ export function PwaLifecycle() {
       const profileId = reminderProfileId;
       if (!profileId || !active) return;
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("organisation_id")
-        .eq("id", profileId)
-        .maybeSingle();
-      if (!profile?.organisation_id || !active) return;
-
-      const [configResult, productProfileResult] = await Promise.all([
-        supabase
-          .schema("zecontrol")
-          .from("orga_configs")
-          .select("timezone")
-          .eq("id", profile.organisation_id)
-          .maybeSingle(),
-        supabase
-          .schema("zecontrol")
-          .from("profiles_configs")
-          .select("role, is_active")
-          .eq("id", profileId)
-          .maybeSingle(),
-      ]);
-      if (
-        productProfileResult.data?.role === "owner" ||
-        productProfileResult.data?.is_active === false ||
-        !active
-      ) {
-        return;
-      }
-      const config = configResult.data;
-      const timeZone = config?.timezone || "Africa/Abidjan";
+      const contextResponse = await fetch("/api/notifications/context", {
+        cache: "no-store",
+      }).catch(() => null);
+      if (!contextResponse?.ok || !active) return;
+      const context = await contextResponse.json() as {
+        eligible?: boolean;
+        timeZone?: string | null;
+      };
+      if (!context.eligible || !active) return;
+      const timeZone = context.timeZone || "Africa/Abidjan";
       const now = new Date();
       const today = dateKey(now, timeZone);
 

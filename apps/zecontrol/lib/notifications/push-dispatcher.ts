@@ -149,7 +149,8 @@ export async function dispatchDueNotifications(now = new Date()) {
             tag: `zecontrol-${context.profile_id}-${context.work_date}-${reminder.key}`,
             url: "/dashboard/pointage",
           }),
-          { TTL: 10 * 60, urgency: "normal" },
+          // Android holds back normal-priority pushes while the phone is idle.
+          { TTL: 30 * 60, urgency: "high" },
         );
         sentDevices += 1;
       } catch (error) {

@@ -114,6 +114,31 @@ describe("evaluateWorkday advanced rules", () => {
 });
 
 describe("currentWorkPolicyReminder", () => {
+  const nightShift = {
+    ...defaultWorkPolicies.fixed,
+    days: [1, 2, 3, 4, 5, 6, 7],
+    startTime: "22:00",
+    endTime: "06:00",
+  };
+
+  it("does not report a missing arrival during the morning before a night shift", () => {
+    expect(currentWorkPolicyReminder({
+      definition: nightShift,
+      events: [],
+      now: new Date("2026-11-04T03:00:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    })).toBeNull();
+  });
+
+  it("still reports the night shift departure after a clock event past midnight", () => {
+    expect(currentWorkPolicyReminder({
+      definition: nightShift,
+      events: [{ type: "resume", event_status: "accepted", pointed_at: "2026-11-04T01:00:00.000Z" }],
+      now: new Date("2026-11-04T06:00:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    })?.title).toBe("C’est l’heure de terminer");
+  });
+
   it("reminds an agent to clock out after the scheduled end", () => {
     const reminder = currentWorkPolicyReminder({
       definition: { ...definition, roundingMinutes: 0 },

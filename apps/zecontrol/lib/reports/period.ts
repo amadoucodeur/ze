@@ -8,14 +8,27 @@ export type ReportPeriod =
   | "all"
   | "custom";
 
-export function dateKey(date: Date, timeZone?: string) {
-  if (timeZone) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
+// Building a formatter costs far more than using one, and the clocking screen
+// computes hundreds of date keys on each one-second tick.
+const dateKeyFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function dateKeyFormatter(timeZone: string) {
+  let formatter = dateKeyFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).formatToParts(date);
+    });
+    dateKeyFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+export function dateKey(date: Date, timeZone?: string) {
+  if (timeZone) {
+    const parts = dateKeyFormatter(timeZone).formatToParts(date);
     const year = parts.find((part) => part.type === "year")?.value;
     const month = parts.find((part) => part.type === "month")?.value;
     const day = parts.find((part) => part.type === "day")?.value;

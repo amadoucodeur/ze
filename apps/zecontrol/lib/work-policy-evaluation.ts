@@ -66,9 +66,12 @@ function balanceDifference(
   return rawDifference + Math.min(breakOverrunMinutes, Math.abs(rawDifference));
 }
 
-function zonedParts(date: Date, timeZone: string) {
-  const values = Object.fromEntries(
-    new Intl.DateTimeFormat("en", {
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zonedFormatter(timeZone: string) {
+  let formatter = zonedFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en", {
       timeZone,
       year: "numeric",
       month: "2-digit",
@@ -76,7 +79,15 @@ function zonedParts(date: Date, timeZone: string) {
       hour: "2-digit",
       minute: "2-digit",
       hourCycle: "h23",
-    })
+    });
+    zonedFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function zonedParts(date: Date, timeZone: string) {
+  const values = Object.fromEntries(
+    zonedFormatter(timeZone)
       .formatToParts(date)
       .map((part) => [part.type, part.value]),
   );
@@ -244,7 +255,9 @@ export function currentWorkPolicyReminder({
   const rawEnd = timeMinutes(schedule.endTime);
   const end = rawEnd <= start ? rawEnd + 24 * 60 : rawEnd;
   let currentMinutes = localNow.minutes;
-  if (rawEnd <= start && currentMinutes <= rawEnd) currentMinutes += 24 * 60;
+  // Early morning belongs to last night's shift, which started on yesterday's
+  // date. Without a clock event today, it says nothing about tonight's arrival.
+  if (last && rawEnd <= start && currentMinutes <= rawEnd) currentMinutes += 24 * 60;
 
   if (!last && currentMinutes < end && reminders.arrivalEnabled) {
     const arrivalWindowStart = start - reminders.arrivalLeadMinutes;
