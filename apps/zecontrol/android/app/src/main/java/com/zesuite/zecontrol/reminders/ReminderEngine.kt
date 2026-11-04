@@ -31,7 +31,6 @@ data class ReminderSettings(
     val followUpEnabled: Boolean = true,
     val warningPercent: Double = 85.0,
     val arrivalLeadMinutes: Double = 60.0,
-    val repeatMinutes: Double = 15.0,
 )
 
 data class WorkPolicy(
@@ -82,6 +81,13 @@ object ReminderEngine {
     private const val NIGHT_FOLLOW_UP_MINUTES = 6 * 60
     private const val PREVIOUS_DAY_LOOKBACK = 3L
     private const val PREVIOUS_DAY_LATEST_MINUTE = 8 * 60
+    /** Mirrors `reminderFollowUps` in lib/work-policy.ts. */
+    private val followUps = mapOf(
+        "arrival" to listOf(10, 30, 60, 120),
+        "departure" to listOf(10, 30, 60, 120, 240),
+        "pause-end" to listOf(10, 30, 60),
+        "pause-due" to listOf(30, 60),
+    )
     private val frenchDay = DateTimeFormatter.ofPattern("d MMMM", Locale.FRENCH)
 
     private fun minutesOf(value: String): Int {
@@ -184,9 +190,15 @@ object ReminderEngine {
         return (worked / MINUTE_MS).toInt()
     }
 
-    private fun repeatedKey(prefix: String, overdue: Int, repeat: Double, followUp: Boolean): String {
-        if (!followUp || overdue < 5) return "$prefix-100"
-        return "$prefix-overdue-${floor((overdue - 5) / max(1.0, repeat)).toInt()}"
+    private fun repeatedKey(prefix: String, overdue: Int, followUp: Boolean): String {
+        val reached = if (followUp) followUps.getValue(prefix).lastOrNull { it <= overdue } else null
+        return if (reached == null) "$prefix-100" else "$prefix-followup-$reached"
+    }
+
+    private fun elapsedLabel(minutes: Int): String {
+        if (minutes < 60) return "$minutes min"
+        val rest = minutes % 60
+        return "${minutes / 60} h" + if (rest > 0) " ${rest.toString().padStart(2, '0')}" else ""
     }
 
     private fun percentLabel(value: Double) =
@@ -226,10 +238,10 @@ object ReminderEngine {
                 val elapsed = currentMinutes - start
                 val toleranceLeft = max(0, policy.toleranceMinutes - elapsed)
                 return reminder(
-                    repeatedKey("arrival", elapsed, settings.repeatMinutes, settings.followUpEnabled),
+                    repeatedKey("arrival", elapsed, settings.followUpEnabled),
                     ReminderCategory.ARRIVAL,
                     if (elapsed == 0) "C’est l’heure de commencer"
-                    else "Arrivée non pointée depuis $elapsed min",
+                    else "Arrivée non pointée depuis ${elapsedLabel(elapsed)}",
                     if (toleranceLeft > 0) "Pointez votre arrivée. Il reste $toleranceLeft min de tolérance."
                     else "Pointez dès votre arrivée. Le retard restera simplement visible dans votre journée.",
                 )
@@ -242,10 +254,10 @@ object ReminderEngine {
         if (currentMinutes >= end && settings.departureEnabled) {
             val overdue = currentMinutes - end
             return reminder(
-                repeatedKey("departure", overdue, settings.repeatMinutes, settings.followUpEnabled),
+                repeatedKey("departure", overdue, settings.followUpEnabled),
                 ReminderCategory.DEPARTURE,
                 if (overdue == 0) "C’est l’heure de terminer"
-                else "Départ non pointé depuis $overdue min",
+                else "Départ non pointé depuis ${elapsedLabel(overdue)}",
                 "Si votre journée est terminée, pensez à pointer votre départ.",
             )
         }
@@ -264,9 +276,9 @@ object ReminderEngine {
                 )
             }
             return reminder(
-                repeatedKey("pause-end", overdue, settings.repeatMinutes, settings.followUpEnabled),
+                repeatedKey("pause-end", overdue, settings.followUpEnabled),
                 ReminderCategory.PAUSE_END,
-                if (overdue > 0) "Pause dépassée de $overdue min"
+                if (overdue > 0) "Pause dépassée de ${elapsedLabel(overdue)}"
                 else "Votre temps de pause est atteint",
                 "Pensez à pointer votre reprise lorsque vous recommencez.",
             )
@@ -290,9 +302,9 @@ object ReminderEngine {
             }
             val overdue = worked - breakDueAt
             return reminder(
-                repeatedKey("pause-due", overdue, settings.repeatMinutes, settings.followUpEnabled),
+                repeatedKey("pause-due", overdue, settings.followUpEnabled),
                 ReminderCategory.PAUSE_DUE,
-                if (overdue > 0) "Pause attendue depuis $overdue min"
+                if (overdue > 0) "Pause attendue depuis ${elapsedLabel(overdue)}"
                 else "C’est le moment de prendre votre pause",
                 "Une pause de ${schedule.breakMinutes} min est prévue. Pointez-la lorsque vous vous arrêtez.",
             )

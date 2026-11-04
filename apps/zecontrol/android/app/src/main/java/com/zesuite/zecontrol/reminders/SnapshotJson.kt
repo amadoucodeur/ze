@@ -50,7 +50,6 @@ object SnapshotJson {
             followUpEnabled = json.optBoolean("followUpEnabled", base.followUpEnabled),
             warningPercent = json.optDouble("warningPercent", base.warningPercent),
             arrivalLeadMinutes = json.optDouble("arrivalLeadMinutes", base.arrivalLeadMinutes),
-            repeatMinutes = json.optDouble("repeatMinutes", base.repeatMinutes),
         )
     }
 
@@ -81,7 +80,6 @@ object SnapshotJson {
             put("followUpEnabled", settings.followUpEnabled)
             put("warningPercent", settings.warningPercent)
             put("arrivalLeadMinutes", settings.arrivalLeadMinutes)
-            put("repeatMinutes", settings.repeatMinutes)
         })
     }
 

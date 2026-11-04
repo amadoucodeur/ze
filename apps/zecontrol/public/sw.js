@@ -89,6 +89,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body,
     tag,
+    // A follow-up replaces the previous message and must still alert.
+    renotify: true,
     lang: "fr",
     dir: "ltr",
     icon: "/pwa/icon-192.png",

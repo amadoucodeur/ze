@@ -4,6 +4,7 @@ import {
   currentWorkPolicyMessage,
   currentWorkPolicyReminder,
   evaluateWorkday,
+  reminderSlot,
 } from "./work-policy-evaluation";
 
 const definition = {
@@ -153,8 +154,63 @@ describe("currentWorkPolicyReminder", () => {
       timeZone: "Africa/Abidjan",
     });
 
-    expect(reminder?.key).toBe("departure-overdue-0");
+    expect(reminder?.key).toBe("departure-followup-10");
     expect(reminder?.title).toBe("Départ non pointé depuis 12 min");
+  });
+
+  it("spaces out departure follow-ups, then goes quiet", () => {
+    const keys = new Set<string>();
+    const firstSeen: number[] = [];
+    for (let minute = 0; minute < 7 * 60; minute += 1) {
+      const reminder = currentWorkPolicyReminder({
+        definition: { ...definition, roundingMinutes: 0 },
+        events: [
+          { type: "start", event_status: "accepted", pointed_at: "2026-08-31T08:00:00.000Z" },
+          { type: "break", event_status: "accepted", pointed_at: "2026-08-31T12:00:00.000Z" },
+          { type: "resume", event_status: "accepted", pointed_at: "2026-08-31T13:00:00.000Z" },
+        ],
+        now: new Date(Date.UTC(2026, 7, 31, 17, minute)),
+        timeZone: "Africa/Abidjan",
+      });
+      if (reminder && !keys.has(reminder.key)) {
+        keys.add(reminder.key);
+        firstSeen.push(minute);
+      }
+    }
+    expect(firstSeen).toEqual([0, 10, 30, 60, 120, 240]);
+  });
+
+  it("stops asking for an arrival two hours after the start", () => {
+    const at = (hour: number) => currentWorkPolicyReminder({
+      definition: { ...definition, roundingMinutes: 0 },
+      events: [],
+      now: new Date(Date.UTC(2026, 7, 31, hour)),
+      timeZone: "Africa/Abidjan",
+    });
+    expect(at(10)?.key).toBe("arrival-followup-120");
+    expect(at(10)?.title).toBe("Arrivée non pointée depuis 2 h");
+    expect(at(15)?.key).toBe("arrival-followup-120");
+  });
+
+  it("shows only one reminder once when follow-ups are disabled", () => {
+    const reminder = currentWorkPolicyReminder({
+      definition: {
+        ...definition,
+        roundingMinutes: 0,
+        reminders: { ...defaultWorkPolicies.fixed.reminders, followUpEnabled: false },
+      },
+      events: [],
+      now: new Date(Date.UTC(2026, 7, 31, 11)),
+      timeZone: "Africa/Abidjan",
+    });
+    expect(reminder?.key).toBe("arrival-100");
+  });
+
+  it("gives every step of a reminder the same notification slot", () => {
+    expect(reminderSlot("arrival-warning-85")).toBe("arrival");
+    expect(reminderSlot("arrival-100")).toBe("arrival");
+    expect(reminderSlot("pause-end-followup-30")).toBe("pause-end");
+    expect(reminderSlot("pause-due-warning-87.5")).toBe("pause-due");
   });
 
   it("does not remind an agent who already clocked out", () => {

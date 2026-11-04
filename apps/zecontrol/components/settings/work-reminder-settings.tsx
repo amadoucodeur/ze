@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, ChevronDown, Clock3, RotateCcw } from "lucide-react";
+import { BellRing, ChevronDown, Clock3 } from "lucide-react";
 import {
   workReminderSettings,
   type WorkPolicyDefinition,
@@ -38,7 +38,7 @@ const reminderOptions: Array<{
   {
     key: "followUpEnabled",
     title: "Relancer après l’échéance",
-    description: "Répéter le rappel tant que le pointage attendu manque.",
+    description: "Relancer après 10 min, 30 min, 1 h puis 2 h, et jusqu’à 4 h pour le départ.",
   },
 ];
 
@@ -106,7 +106,7 @@ export function WorkReminderSettings({
           <details className="work-reminder-advanced">
             <summary>
               <span><Clock3 size={15} /> Régler les seuils</span>
-              <small>{settings.warningPercent} % · toutes les {settings.repeatMinutes} min</small>
+              <small>{settings.warningPercent} % · {settings.arrivalLeadMinutes} min avant l’arrivée</small>
               <ChevronDown size={15} />
             </summary>
             <div>
@@ -165,24 +165,6 @@ export function WorkReminderSettings({
                     }
                   />
                   <em>h</em>
-                </div>
-              </label>
-              <label>
-                <span>Répéter après</span>
-                <div>
-                  <RotateCcw size={14} />
-                  <input
-                    type="number"
-                    min={5}
-                    max={60}
-                    step={5}
-                    value={settings.repeatMinutes}
-                    disabled={!settings.followUpEnabled}
-                    onChange={(event) =>
-                      update({ repeatMinutes: Number(event.target.value) })
-                    }
-                  />
-                  <em>min</em>
                 </div>
               </label>
             </div>

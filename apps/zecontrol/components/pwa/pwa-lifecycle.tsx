@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Bell, BellRing, Check, Download, RefreshCw, RotateCcw, Share, Smartphone, WifiOff, X } from "lucide-react";
 import {
   currentWorkPolicyReminder,
+  reminderSlot,
   type EvaluatedClockingEvent,
 } from "@/lib/work-policy-evaluation";
 import { isWorkPolicyDefinition } from "@/lib/work-policy";
@@ -452,9 +453,10 @@ export function PwaLifecycle() {
 
       const displayed = await showZeControlNotification(message.title, {
         body: message.message,
-        tag: `zecontrol-${profileId}-${today}-${category}`,
+        tag: `zecontrol-${profileId}-${today}-${reminderSlot(category)}`,
+        renotify: true,
         data: { url: "/dashboard/pointage" },
-      });
+      } as NotificationOptions);
       if (displayed) {
         try {
           window.localStorage.setItem(sentKey, now.toISOString());

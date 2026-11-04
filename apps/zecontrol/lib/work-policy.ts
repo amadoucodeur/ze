@@ -15,7 +15,6 @@ export type WorkReminderSettings = {
   followUpEnabled: boolean;
   warningPercent: number;
   arrivalLeadMinutes: number;
-  repeatMinutes: number;
 };
 
 export const defaultWorkReminderSettings: WorkReminderSettings = {
@@ -27,8 +26,19 @@ export const defaultWorkReminderSettings: WorkReminderSettings = {
   followUpEnabled: true,
   warningPercent: 85,
   arrivalLeadMinutes: 60,
-  repeatMinutes: 15,
 };
+
+/**
+ * Minutes after the deadline at which an unanswered reminder comes back. Mirrored
+ * in android/.../ReminderEngine.kt. A missing arrival often means a day off, so it
+ * stops sooner than a forgotten departure, which costs the employee time.
+ */
+export const reminderFollowUps = {
+  arrival: [10, 30, 60, 120],
+  departure: [10, 30, 60, 120, 240],
+  "pause-end": [10, 30, 60],
+  "pause-due": [30, 60],
+} as const;
 
 export type WorkPolicyDefinition = {
   mode: WorkPolicyMode;
@@ -160,10 +170,7 @@ export function areWorkReminderSettingsValid(
     settings.warningPercent <= 95 &&
     Number.isFinite(settings.arrivalLeadMinutes) &&
     settings.arrivalLeadMinutes >= 15 &&
-    settings.arrivalLeadMinutes <= 180 &&
-    Number.isFinite(settings.repeatMinutes) &&
-    settings.repeatMinutes >= 5 &&
-    settings.repeatMinutes <= 60
+    settings.arrivalLeadMinutes <= 180
   );
 }
 
@@ -214,9 +221,7 @@ export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefin
         (candidate.reminders.warningPercent === undefined ||
           typeof candidate.reminders.warningPercent === "number") &&
         (candidate.reminders.arrivalLeadMinutes === undefined ||
-          typeof candidate.reminders.arrivalLeadMinutes === "number") &&
-        (candidate.reminders.repeatMinutes === undefined ||
-          typeof candidate.reminders.repeatMinutes === "number")
+          typeof candidate.reminders.arrivalLeadMinutes === "number")
       )
     )
   );

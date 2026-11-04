@@ -22,7 +22,7 @@ const definitions: Record<string, WorkPolicyDefinition> = {
     breakMinutes: 45,
     toleranceMinutes: 3,
     minimumBreakAfterMinutes: 240,
-    reminders: { ...defaultWorkReminderSettings, warningPercent: 70, arrivalLeadMinutes: 45, repeatMinutes: 7 },
+    reminders: { ...defaultWorkReminderSettings, warningPercent: 70, arrivalLeadMinutes: 45 },
   },
   daySchedule: {
     ...base,

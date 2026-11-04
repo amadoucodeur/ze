@@ -38,8 +38,8 @@ android {
         applicationId = "com.zesuite.zecontrol"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
         buildConfigField("String", "SITE_URL", "\"${siteUrl.trimEnd('/')}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.trimEnd('/')}\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")

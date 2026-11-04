@@ -3,6 +3,7 @@ import "server-only";
 import webpush from "web-push";
 import {
   currentWorkPolicyReminder,
+  reminderSlot,
   type EvaluatedClockingEvent,
 } from "@/lib/work-policy-evaluation";
 import { isWorkPolicyDefinition } from "@/lib/work-policy";
@@ -146,7 +147,7 @@ export async function dispatchDueNotifications(now = new Date()) {
           JSON.stringify({
             title: reminder.title,
             body: reminder.message,
-            tag: `zecontrol-${context.profile_id}-${context.work_date}-${reminder.key}`,
+            tag: `zecontrol-${context.profile_id}-${context.work_date}-${reminderSlot(reminder.key)}`,
             url: "/dashboard/pointage",
           }),
           // Android holds back normal-priority pushes while the phone is idle.

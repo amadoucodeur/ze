@@ -1,4 +1,5 @@
 import {
+  reminderFollowUps,
   scheduleForDay,
   scheduledMinutes,
   unclosedDayPenaltyMinutes,
@@ -171,13 +172,25 @@ function durations(
 }
 
 function repeatedReminderKey(
-  prefix: string,
+  prefix: keyof typeof reminderFollowUps,
   overdueMinutes: number,
-  repeatMinutes: number,
   followUpEnabled: boolean,
 ) {
-  if (!followUpEnabled || overdueMinutes < 5) return `${prefix}-100`;
-  return `${prefix}-overdue-${Math.floor((overdueMinutes - 5) / Math.max(1, repeatMinutes))}`;
+  const reached = followUpEnabled
+    ? reminderFollowUps[prefix].filter((minutes) => minutes <= overdueMinutes).at(-1)
+    : undefined;
+  return reached === undefined ? `${prefix}-100` : `${prefix}-followup-${reached}`;
+}
+
+/** Follow-ups of one reminder replace each other instead of piling up. */
+export function reminderSlot(key: string) {
+  return key.replace(/-(warning-.+|100|followup-\d+)$/, "");
+}
+
+function elapsedLabel(minutes: number) {
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return `${Math.floor(minutes / 60)} h${rest ? ` ${String(rest).padStart(2, "0")}` : ""}`;
 }
 
 export function currentBreakProgress({
@@ -285,7 +298,6 @@ export function currentWorkPolicyReminder({
         key: repeatedReminderKey(
           "arrival",
           elapsed,
-          reminders.repeatMinutes,
           reminders.followUpEnabled,
         ),
         tone:
@@ -293,7 +305,7 @@ export function currentWorkPolicyReminder({
         title:
           elapsed === 0
             ? "C’est l’heure de commencer"
-            : `Arrivée non pointée depuis ${elapsed} min`,
+            : `Arrivée non pointée depuis ${elapsedLabel(elapsed)}`,
         message:
           toleranceRemaining > 0
             ? `Pointez votre arrivée. Il reste ${toleranceRemaining} min de tolérance.`
@@ -311,14 +323,13 @@ export function currentWorkPolicyReminder({
       key: repeatedReminderKey(
         "departure",
         overdue,
-        reminders.repeatMinutes,
         reminders.followUpEnabled,
       ),
       tone: overdue > definition.toleranceMinutes ? "attention" : "reminder",
       title:
         overdue === 0
           ? "C’est l’heure de terminer"
-          : `Départ non pointé depuis ${overdue} min`,
+          : `Départ non pointé depuis ${elapsedLabel(overdue)}`,
       message: "Si votre journée est terminée, pensez à pointer votre départ.",
     };
   }
@@ -351,13 +362,12 @@ export function currentWorkPolicyReminder({
       key: repeatedReminderKey(
         "pause-end",
         progress.overdueMinutes,
-        reminders.repeatMinutes,
         reminders.followUpEnabled,
       ),
       tone: progress.overdueMinutes > 0 ? "attention" : "reminder",
       title:
         progress.overdueMinutes > 0
-          ? `Pause dépassée de ${progress.overdueMinutes} min`
+          ? `Pause dépassée de ${elapsedLabel(progress.overdueMinutes)}`
           : "Votre temps de pause est atteint",
       message: "Pensez à pointer votre reprise lorsque vous recommencez.",
     };
@@ -388,13 +398,12 @@ export function currentWorkPolicyReminder({
       key: repeatedReminderKey(
         "pause-due",
         overdue,
-        reminders.repeatMinutes,
         reminders.followUpEnabled,
       ),
       tone: overdue > 0 ? "attention" : "reminder",
       title:
         overdue > 0
-          ? `Pause attendue depuis ${overdue} min`
+          ? `Pause attendue depuis ${elapsedLabel(overdue)}`
           : "C’est le moment de prendre votre pause",
       message: `Une pause de ${schedule.breakMinutes} min est prévue. Pointez-la lorsque vous vous arrêtez.`,
     };

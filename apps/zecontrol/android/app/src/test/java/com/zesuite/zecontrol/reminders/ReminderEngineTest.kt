@@ -61,7 +61,7 @@ class ReminderEngineTest {
         val data = snapshot(events, week(policy("22:00", "06:00")))
         val followUp = ReminderEngine.due(data, ms("2026-11-04", "08:00")).single()
         assertEquals(ReminderCategory.DEPARTURE, followUp.category)
-        assertEquals("Départ non pointé depuis 120 min", followUp.title)
+        assertEquals("Départ non pointé depuis 2 h", followUp.title)
         val later = ReminderEngine.due(data, ms("2026-11-04", "12:30")).single()
         assertEquals(ReminderCategory.PREVIOUS_DAY, later.category)
         assertEquals("Départ oublié le 3 novembre", later.title)
@@ -148,6 +148,64 @@ class ReminderEngineTest {
         assertEquals(ms("2026-11-04", "13:04"), next)
     }
 
+    /** Follows the alarms the way the device would, delivering each reminder. */
+    private fun firingsBetween(data: Snapshot, fromMs: Long, untilMs: Long): List<Long> {
+        val delivered = mutableSetOf<String>()
+        val fired = mutableListOf<Long>()
+        var now = fromMs
+        while (true) {
+            val next = ReminderEngine.nextFireAt(data, now, delivered) ?: break
+            if (next > untilMs) break
+            fired += next
+            ReminderEngine.due(data, next).forEach { delivered += it.deliveryId }
+            now = next
+        }
+        return fired
+    }
+
+    @Test
+    fun aForgottenDepartureIsRemindedAtWideningIntervalsThenStops() {
+        val events = listOf(
+            ClockEvent("start", ms("2026-11-04", "08:00")),
+            ClockEvent("break", ms("2026-11-04", "12:00")),
+            ClockEvent("resume", ms("2026-11-04", "13:00")),
+        )
+        val fired = firingsBetween(
+            snapshot(events, week(policy())), ms("2026-11-04", "16:00"), ms("2026-11-04", "23:59"),
+        )
+        assertEquals(
+            listOf("17:00", "17:10", "17:30", "18:00", "19:00", "21:00").map { ms("2026-11-04", it) },
+            fired,
+        )
+    }
+
+    @Test
+    fun aMissingArrivalStopsAfterTwoHours() {
+        val fired = firingsBetween(
+            snapshot(emptyList(), week(policy())), ms("2026-11-04", "07:00"), ms("2026-11-04", "23:59"),
+        )
+        assertEquals(
+            listOf("07:51", "08:00", "08:10", "08:30", "09:00", "10:00").map { ms("2026-11-04", it) },
+            fired,
+        )
+    }
+
+    @Test
+    fun clockingStopsTheRemainingFollowUps() {
+        val events = listOf(ClockEvent("start", ms("2026-11-04", "08:40")))
+        val data = snapshot(events, week(policy()))
+        assertTrue(ReminderEngine.due(data, ms("2026-11-04", "09:00")).isEmpty())
+    }
+
+    @Test
+    fun followUpsCanBeTurnedOff() {
+        val data = snapshot(emptyList(), week(policy(reminders = ReminderSettings(followUpEnabled = false))))
+        assertEquals(
+            listOf("07:51", "08:00").map { ms("2026-11-04", it) },
+            firingsBetween(data, ms("2026-11-04", "07:00"), ms("2026-11-04", "23:59")),
+        )
+    }
+
     @Test
     fun aFinishedDayPlansNothingBeforeTomorrow() {
         val events = listOf(
@@ -179,7 +237,7 @@ class ReminderEngineTest {
             mapOf(
                 "2026-11-04" to policy().copy(
                     daySchedules = mapOf("3" to DaySchedule("09:00", "12:00", 15)),
-                    reminders = ReminderSettings(warningPercent = 70.0, repeatMinutes = 7.0),
+                    reminders = ReminderSettings(warningPercent = 70.0),
                 ),
                 "2026-11-05" to null,
             ),

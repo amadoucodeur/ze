@@ -8,6 +8,19 @@ rappels sont envoyés même lorsque ZeControl est fermé. Le contrôle local res
 un secours lorsqu’une page du tableau de bord est ouverte. Sur iPhone,
 ZeControl doit d’abord être installé sur l’écran d’accueil.
 
+Tant que le pointage attendu manque, le rappel revient à intervalles croissants
+puis s’arrête, et chaque relance remplace la précédente :
+
+| Rappel | Relances après l’échéance |
+| --- | --- |
+| Arrivée | 10 min, 30 min, 1 h, 2 h |
+| Départ | 10 min, 30 min, 1 h, 2 h, 4 h |
+| Reprise après pause | 10 min, 30 min, 1 h |
+| Pause à prendre | 30 min, 1 h |
+
+Cette échelle est définie dans `lib/work-policy.ts` et recopiée dans
+`android/.../ReminderEngine.kt`.
+
 La configuration de production, volontairement courte, est documentée dans
 [`docs/notifications/WEB_PUSH.md`](docs/notifications/WEB_PUSH.md).
 
