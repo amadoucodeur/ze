@@ -9,6 +9,7 @@ const protectedPaths = [
   "/nouveau-mot-de-passe",
 ];
 const guestOnlyPaths = ["/connexion", "/inscription"];
+const ANDROID_APP_MARKER = "ZeControlAndroid/";
 
 function copySessionState(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((cookie) => to.cookies.set(cookie));
@@ -58,6 +59,16 @@ export async function updateSession(request: NextRequest) {
     return copySessionState(
       response,
       NextResponse.redirect(new URL("/dashboard", request.url)),
+    );
+  }
+
+  // The Android app opens on the product, never on the marketing page.
+  if (pathname === "/" && request.headers.get("user-agent")?.includes(ANDROID_APP_MARKER)) {
+    return copySessionState(
+      response,
+      NextResponse.redirect(
+        new URL(isAuthenticated ? "/dashboard" : "/connexion", request.url),
+      ),
     );
   }
 
