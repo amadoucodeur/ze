@@ -210,7 +210,47 @@ describe("currentWorkPolicyReminder", () => {
     expect(reminderSlot("arrival-warning-85")).toBe("arrival");
     expect(reminderSlot("arrival-100")).toBe("arrival");
     expect(reminderSlot("pause-end-followup-30")).toBe("pause-end");
-    expect(reminderSlot("pause-due-warning-87.5")).toBe("pause-due");
+    expect(reminderSlot("pause-end-warning-87.5")).toBe("pause-end");
+  });
+
+  it("never notifies about taking a break", () => {
+    for (let hour = 8; hour < 17; hour += 1) {
+      expect(currentWorkPolicyReminder({
+        definition: { ...definition, roundingMinutes: 0 },
+        events: [{ type: "start", event_status: "accepted", pointed_at: "2026-08-31T08:00:00.000Z" }],
+        now: new Date(Date.UTC(2026, 7, 31, hour, 30)),
+        timeZone: "Africa/Abidjan",
+      })).toBeNull();
+    }
+  });
+
+  describe("forgotten departure penalty", () => {
+    const departure = (
+      penalty: number | undefined,
+      last: "start" | "break" = "start",
+    ) => currentWorkPolicyReminder({
+      definition: { ...definition, roundingMinutes: 0, unclosedDayPenaltyMinutes: penalty },
+      events: [{ type: last, event_status: "accepted", pointed_at: "2026-08-31T08:00:00.000Z" }],
+      now: new Date("2026-08-31T17:10:00.000Z"),
+      timeZone: "Africa/Abidjan",
+    })?.message;
+
+    it("states the configured penalty", () => {
+      expect(departure(30)).toContain("retire 30 min de votre temps de travail");
+      expect(departure(90)).toContain("retire 1 h 30 de votre temps de travail");
+    });
+
+    it("uses the default penalty of a fixed schedule", () => {
+      expect(departure(undefined)).toContain("retire 30 min");
+    });
+
+    it("mentions nothing when there is no penalty", () => {
+      expect(departure(0)).toBe("Si votre journée est terminée, pensez à pointer votre départ.");
+    });
+
+    it("mentions nothing when the day would close at a break, without penalty", () => {
+      expect(departure(30, "break")).toBe("Si votre journée est terminée, pensez à pointer votre départ.");
+    });
   });
 
   it("does not remind an agent who already clocked out", () => {
@@ -231,7 +271,6 @@ describe("currentWorkPolicyReminder", () => {
         roundingMinutes: 0,
         reminders: {
           ...defaultWorkPolicies.fixed.reminders,
-          breakDueEnabled: false,
           breakEndEnabled: false,
           departureEnabled: false,
         },

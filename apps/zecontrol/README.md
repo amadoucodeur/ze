@@ -16,10 +16,11 @@ puis s’arrête, et chaque relance remplace la précédente :
 | Arrivée | 10 min, 30 min, 1 h, 2 h |
 | Départ | 10 min, 30 min, 1 h, 2 h, 4 h |
 | Reprise après pause | 10 min, 30 min, 1 h |
-| Pause à prendre | 30 min, 1 h |
 
 Cette échelle est définie dans `lib/work-policy.ts` et recopiée dans
-`android/.../ReminderEngine.kt`.
+`android/.../ReminderEngine.kt`. Les rappels de départ indiquent la pénalité de
+la règle de travail, sauf si elle est nulle ou si la personne est restée en pause.
+Le temps de pause à prendre reste indiqué dans l’application, sans notification.
 
 La configuration de production, volontairement courte, est documentée dans
 [`docs/notifications/WEB_PUSH.md`](docs/notifications/WEB_PUSH.md).

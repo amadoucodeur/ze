@@ -10,7 +10,7 @@ import {
 const reminderOptions: Array<{
   key: keyof Pick<
     ReminderSettings,
-    "arrivalEnabled" | "breakDueEnabled" | "breakEndEnabled" | "departureEnabled" | "followUpEnabled"
+    "arrivalEnabled" | "breakEndEnabled" | "departureEnabled" | "followUpEnabled"
   >;
   title: string;
   description: string;
@@ -19,11 +19,6 @@ const reminderOptions: Array<{
     key: "arrivalEnabled",
     title: "Début de journée",
     description: "Avant l’heure prévue, à l’heure puis en cas d’oubli.",
-  },
-  {
-    key: "breakDueEnabled",
-    title: "Pause à prendre",
-    description: "Lorsque le temps de travail avant pause approche.",
   },
   {
     key: "breakEndEnabled",
@@ -154,7 +149,6 @@ export function WorkReminderSettings({
                     max={24}
                     step={0.5}
                     value={definition.minimumBreakAfterMinutes / 60}
-                    disabled={!settings.breakDueEnabled}
                     onChange={(event) =>
                       onChange({
                         ...definition,

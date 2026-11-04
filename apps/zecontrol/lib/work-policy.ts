@@ -9,7 +9,6 @@ export type WorkDaySchedule = {
 export type WorkReminderSettings = {
   enabled: boolean;
   arrivalEnabled: boolean;
-  breakDueEnabled: boolean;
   breakEndEnabled: boolean;
   departureEnabled: boolean;
   followUpEnabled: boolean;
@@ -20,7 +19,6 @@ export type WorkReminderSettings = {
 export const defaultWorkReminderSettings: WorkReminderSettings = {
   enabled: true,
   arrivalEnabled: true,
-  breakDueEnabled: true,
   breakEndEnabled: true,
   departureEnabled: true,
   followUpEnabled: true,
@@ -37,7 +35,6 @@ export const reminderFollowUps = {
   arrival: [10, 30, 60, 120],
   departure: [10, 30, 60, 120, 240],
   "pause-end": [10, 30, 60],
-  "pause-due": [30, 60],
 } as const;
 
 export type WorkPolicyDefinition = {
@@ -132,7 +129,6 @@ export const defaultWorkPolicies: Record<WorkPolicyMode, WorkPolicyDefinition> =
       ...defaultWorkReminderSettings,
       enabled: false,
       arrivalEnabled: false,
-      breakDueEnabled: false,
       breakEndEnabled: false,
       departureEnabled: false,
     },
@@ -210,8 +206,6 @@ export function isWorkPolicyDefinition(value: unknown): value is WorkPolicyDefin
           typeof candidate.reminders.enabled === "boolean") &&
         (candidate.reminders.arrivalEnabled === undefined ||
           typeof candidate.reminders.arrivalEnabled === "boolean") &&
-        (candidate.reminders.breakDueEnabled === undefined ||
-          typeof candidate.reminders.breakDueEnabled === "boolean") &&
         (candidate.reminders.breakEndEnabled === undefined ||
           typeof candidate.reminders.breakEndEnabled === "boolean") &&
         (candidate.reminders.departureEnabled === undefined ||

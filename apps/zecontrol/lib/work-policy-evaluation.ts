@@ -193,6 +193,14 @@ function elapsedLabel(minutes: number) {
   return `${Math.floor(minutes / 60)} h${rest ? ` ${String(rest).padStart(2, "0")}` : ""}`;
 }
 
+/** A day left open during a break closes at the break, without any penalty. */
+function departureMessage(penaltyMinutes: number) {
+  const reminder = "Si votre journée est terminée, pensez à pointer votre départ.";
+  return penaltyMinutes > 0
+    ? `${reminder} Un départ oublié retire ${elapsedLabel(penaltyMinutes)} de votre temps de travail.`
+    : reminder;
+}
+
 export function currentBreakProgress({
   definition,
   events,
@@ -330,7 +338,9 @@ export function currentWorkPolicyReminder({
         overdue === 0
           ? "C’est l’heure de terminer"
           : `Départ non pointé depuis ${elapsedLabel(overdue)}`,
-      message: "Si votre journée est terminée, pensez à pointer votre départ.",
+      message: departureMessage(
+        last.type === "break" ? 0 : unclosedDayPenaltyMinutes(definition),
+      ),
     };
   }
 
@@ -370,42 +380,6 @@ export function currentWorkPolicyReminder({
           ? `Pause dépassée de ${elapsedLabel(progress.overdueMinutes)}`
           : "Votre temps de pause est atteint",
       message: "Pensez à pointer votre reprise lorsque vous recommencez.",
-    };
-  }
-
-  const hasBreak = result.events.some((event) => event.type === "break");
-  const breakDueAt = definition.minimumBreakAfterMinutes;
-  if (
-    !hasBreak &&
-    breakDueAt > 0 &&
-    reminders.breakDueEnabled &&
-    (last.type === "start" || last.type === "resume")
-  ) {
-    const reminderAt = Math.ceil(
-      breakDueAt * (reminders.warningPercent / 100),
-    );
-    if (result.workedMinutes < reminderAt) return null;
-    if (result.workedMinutes < breakDueAt) {
-      return {
-        key: `pause-due-warning-${reminders.warningPercent}`,
-        tone: "reminder",
-        title: "Votre pause approche",
-        message: `Encore ${breakDueAt - result.workedMinutes} min avant la pause prévue.`,
-      };
-    }
-    const overdue = result.workedMinutes - breakDueAt;
-    return {
-      key: repeatedReminderKey(
-        "pause-due",
-        overdue,
-        reminders.followUpEnabled,
-      ),
-      tone: overdue > 0 ? "attention" : "reminder",
-      title:
-        overdue > 0
-          ? `Pause attendue depuis ${elapsedLabel(overdue)}`
-          : "C’est le moment de prendre votre pause",
-      message: `Une pause de ${schedule.breakMinutes} min est prévue. Pointez-la lorsque vous vous arrêtez.`,
     };
   }
 

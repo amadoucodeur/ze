@@ -103,6 +103,40 @@ class ReminderEngineTest {
     }
 
     @Test
+    fun aForgottenDepartureStatesThePenaltyOfTheRule() {
+        val events = listOf(ClockEvent("start", ms("2026-11-03", "08:00")))
+        val message = { penalty: Int ->
+            ReminderEngine.due(
+                snapshot(events, week(policy().copy(unclosedDayPenaltyMinutes = penalty))),
+                ms("2026-11-04", "07:45"),
+            ).single().message
+        }
+        assertTrue(message(30), message(30).contains("30 min sont retirées"))
+        assertTrue(message(90), message(90).contains("1 h 30 sont retirées"))
+        assertFalse(message(0), message(0).contains("retirées"))
+    }
+
+    @Test
+    fun aDayLeftOpenDuringABreakHasNoPenaltyToState() {
+        val events = listOf(
+            ClockEvent("start", ms("2026-11-03", "08:00")),
+            ClockEvent("break", ms("2026-11-03", "12:00")),
+        )
+        val data = snapshot(events, week(policy()))
+        val message = ReminderEngine.due(data, ms("2026-11-04", "07:45")).single().message
+        assertFalse(message, message.contains("retirées"))
+    }
+
+    @Test
+    fun anUnknownPenaltyFallsBackLikeTheWebsite() {
+        val definition = org.json.JSONObject(
+            """{"mode":"fixed","days":[1],"startTime":"08:00","endTime":"17:00",
+            "breakMinutes":60,"toleranceMinutes":10}""",
+        )
+        assertEquals(30, SnapshotJson.policyFromDefinition(definition)?.unclosedDayPenaltyMinutes)
+    }
+
+    @Test
     fun aPendingClosureRequestSilencesTheForgottenDeparture() {
         val events = listOf(ClockEvent("start", ms("2026-11-03", "08:00")))
         val due = ReminderEngine.due(
@@ -141,11 +175,10 @@ class ReminderEngineTest {
     }
 
     @Test
-    fun clockingInMovesThePlanFromArrivalToBreak() {
+    fun clockingInMovesThePlanFromArrivalToDepartureWithoutABreakReminder() {
         val data = snapshot(listOf(ClockEvent("start", ms("2026-11-04", "07:58"))), week(policy()))
         val next = ReminderEngine.nextFireAt(data, ms("2026-11-04", "08:00"), emptySet())
-        // Default settings: 85% of 360 worked minutes after 07:58.
-        assertEquals(ms("2026-11-04", "13:04"), next)
+        assertEquals(ms("2026-11-04", "17:00"), next)
     }
 
     /** Follows the alarms the way the device would, delivering each reminder. */

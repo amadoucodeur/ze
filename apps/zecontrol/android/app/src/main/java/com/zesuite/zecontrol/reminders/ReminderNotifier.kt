@@ -15,6 +15,8 @@ import com.zesuite.zecontrol.R
 object ReminderNotifier {
     private const val CHANNEL_ID = "clocking_reminders"
     const val POINTAGE_PATH = "/dashboard/pointage"
+    /** Left on screen by a version which still reminded about taking a break. */
+    private const val RETIRED_BREAK_DUE_ID = 1003
 
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
@@ -38,7 +40,7 @@ object ReminderNotifier {
     }
 
     /** One slot per category: a follow-up replaces the previous message. */
-    private fun notificationId(category: ReminderCategory) = 1000 + category.ordinal
+    private fun notificationId(category: ReminderCategory) = 1000 + category.slot
 
     fun show(context: Context, reminder: Reminder): Boolean =
         post(context, notificationId(reminder.category), reminder.title, reminder.message, POINTAGE_PATH)
@@ -85,6 +87,7 @@ object ReminderNotifier {
     /** Removes messages which no longer apply, such as an arrival now clocked. */
     fun retainOnly(context: Context, stillDue: Set<ReminderCategory>) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        manager.cancel(RETIRED_BREAK_DUE_ID)
         ReminderCategory.entries
             .filter { it !in stillDue }
             .forEach { manager.cancel(notificationId(it)) }

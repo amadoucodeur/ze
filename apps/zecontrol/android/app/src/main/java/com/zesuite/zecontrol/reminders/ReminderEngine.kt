@@ -25,7 +25,6 @@ data class DaySchedule(val startTime: String, val endTime: String, val breakMinu
 data class ReminderSettings(
     val enabled: Boolean = true,
     val arrivalEnabled: Boolean = true,
-    val breakDueEnabled: Boolean = true,
     val breakEndEnabled: Boolean = true,
     val departureEnabled: Boolean = true,
     val followUpEnabled: Boolean = true,
@@ -41,7 +40,7 @@ data class WorkPolicy(
     val daySchedules: Map<String, DaySchedule>,
     val breakMinutes: Int,
     val toleranceMinutes: Int,
-    val minimumBreakAfterMinutes: Int,
+    val unclosedDayPenaltyMinutes: Int,
     val reminders: ReminderSettings,
 ) {
     fun scheduleFor(weekday: Int): DaySchedule? {
@@ -63,7 +62,10 @@ data class Snapshot(
     val policiesFetchedAtMs: Long = 0,
 )
 
-enum class ReminderCategory { ARRIVAL, DEPARTURE, PAUSE_END, PAUSE_DUE, DAY_OPEN, PREVIOUS_DAY }
+/** `slot` identifies the notification on the phone, so it must stay stable. */
+enum class ReminderCategory(val slot: Int) {
+    ARRIVAL(0), DEPARTURE(1), PAUSE_END(2), DAY_OPEN(4), PREVIOUS_DAY(5)
+}
 
 data class Reminder(
     val workDate: String,
@@ -86,7 +88,6 @@ object ReminderEngine {
         "arrival" to listOf(10, 30, 60, 120),
         "departure" to listOf(10, 30, 60, 120, 240),
         "pause-end" to listOf(10, 30, 60),
-        "pause-due" to listOf(30, 60),
     )
     private val frenchDay = DateTimeFormatter.ofPattern("d MMMM", Locale.FRENCH)
 
@@ -172,24 +173,6 @@ object ReminderEngine {
             .sortedBy { it.pointedAtMs }
     }
 
-    private fun workedMinutes(events: List<ClockEvent>, nowMs: Long): Int {
-        var openedAt: Long? = null
-        var worked = 0L
-        for (event in events) {
-            when (event.type) {
-                "start", "resume" -> openedAt = event.pointedAtMs
-                "break", "end" -> {
-                    openedAt?.let { worked += max(0, event.pointedAtMs - it) }
-                    openedAt = null
-                }
-            }
-        }
-        if (openedAt != null && events.lastOrNull()?.type != "end") {
-            worked += max(0, nowMs - openedAt!!)
-        }
-        return (worked / MINUTE_MS).toInt()
-    }
-
     private fun repeatedKey(prefix: String, overdue: Int, followUp: Boolean): String {
         val reached = if (followUp) followUps.getValue(prefix).lastOrNull { it <= overdue } else null
         return if (reached == null) "$prefix-100" else "$prefix-followup-$reached"
@@ -199,6 +182,16 @@ object ReminderEngine {
         if (minutes < 60) return "$minutes min"
         val rest = minutes % 60
         return "${minutes / 60} h" + if (rest > 0) " ${rest.toString().padStart(2, '0')}" else ""
+    }
+
+    /** A day left open during a break closes at the break, without any penalty. */
+    private fun departureMessage(penaltyMinutes: Int): String {
+        val reminder = "Si votre journée est terminée, pensez à pointer votre départ."
+        return if (penaltyMinutes > 0) {
+            "$reminder Un départ oublié retire ${elapsedLabel(penaltyMinutes)} de votre temps de travail."
+        } else {
+            reminder
+        }
     }
 
     private fun percentLabel(value: Double) =
@@ -258,7 +251,7 @@ object ReminderEngine {
                 ReminderCategory.DEPARTURE,
                 if (overdue == 0) "C’est l’heure de terminer"
                 else "Départ non pointé depuis ${elapsedLabel(overdue)}",
-                "Si votre journée est terminée, pensez à pointer votre départ.",
+                departureMessage(if (last.type == "break") 0 else policy.unclosedDayPenaltyMinutes),
             )
         }
 
@@ -284,31 +277,6 @@ object ReminderEngine {
             )
         }
 
-        val hasBreak = events.any { it.type == "break" }
-        val breakDueAt = policy.minimumBreakAfterMinutes
-        if (
-            !hasBreak && breakDueAt > 0 && settings.breakDueEnabled &&
-            (last.type == "start" || last.type == "resume")
-        ) {
-            val worked = workedMinutes(events, nowMs)
-            if (worked < ceil(breakDueAt * (settings.warningPercent / 100))) return null
-            if (worked < breakDueAt) {
-                return reminder(
-                    "pause-due-warning-${percentLabel(settings.warningPercent)}",
-                    ReminderCategory.PAUSE_DUE,
-                    "Votre pause approche",
-                    "Encore ${breakDueAt - worked} min avant la pause prévue.",
-                )
-            }
-            val overdue = worked - breakDueAt
-            return reminder(
-                repeatedKey("pause-due", overdue, settings.followUpEnabled),
-                ReminderCategory.PAUSE_DUE,
-                if (overdue > 0) "Pause attendue depuis ${elapsedLabel(overdue)}"
-                else "C’est le moment de prendre votre pause",
-                "Une pause de ${schedule.breakMinutes} min est prévue. Pointez-la lorsque vous vous arrêtez.",
-            )
-        }
         return null
     }
 
@@ -378,12 +346,21 @@ object ReminderEngine {
             if (nowMs <= nightEnd) return null
         }
 
+        val penalty = if (schedule != null && lastBeforeToday.type != "break") {
+            policy.unclosedDayPenaltyMinutes
+        } else {
+            0
+        }
         return Reminder(
             day.toString(),
             "previous-departure",
             ReminderCategory.PREVIOUS_DAY,
             "Départ oublié le ${day.format(frenchDay)}",
-            "Votre journée n’a pas été clôturée. Vous pourrez renseigner ce départ juste après avoir pointé votre arrivée.",
+            if (penalty > 0) {
+                "Votre journée n’a pas été clôturée : ${elapsedLabel(penalty)} sont retirées de votre temps de travail tant que ce départ n’est pas renseigné. Vous pourrez le faire juste après avoir pointé votre arrivée."
+            } else {
+                "Votre journée n’a pas été clôturée. Vous pourrez renseigner ce départ juste après avoir pointé votre arrivée."
+            },
         )
     }
 }

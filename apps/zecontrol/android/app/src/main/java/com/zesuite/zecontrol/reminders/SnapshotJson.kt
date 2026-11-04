@@ -2,6 +2,7 @@ package com.zesuite.zecontrol.reminders
 
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /** JSON mapping for server payloads and for the snapshot stored on the device. */
 object SnapshotJson {
@@ -32,7 +33,9 @@ object SnapshotJson {
                 daySchedules = schedules,
                 breakMinutes = definition.getInt("breakMinutes"),
                 toleranceMinutes = definition.getInt("toleranceMinutes"),
-                minimumBreakAfterMinutes = definition.getInt("minimumBreakAfterMinutes"),
+                unclosedDayPenaltyMinutes = definition.optDouble("unclosedDayPenaltyMinutes")
+                    .takeUnless { it.isNaN() }?.roundToInt()?.coerceIn(0, 720)
+                    ?: if (mode == "fixed") 30 else 0,
                 reminders = settingsFrom(definition.optJSONObject("reminders")),
             )
         }.getOrNull()
@@ -44,7 +47,6 @@ object SnapshotJson {
         return ReminderSettings(
             enabled = json.optBoolean("enabled", base.enabled),
             arrivalEnabled = json.optBoolean("arrivalEnabled", base.arrivalEnabled),
-            breakDueEnabled = json.optBoolean("breakDueEnabled", base.breakDueEnabled),
             breakEndEnabled = json.optBoolean("breakEndEnabled", base.breakEndEnabled),
             departureEnabled = json.optBoolean("departureEnabled", base.departureEnabled),
             followUpEnabled = json.optBoolean("followUpEnabled", base.followUpEnabled),
@@ -60,7 +62,7 @@ object SnapshotJson {
         put("endTime", policy.endTime)
         put("breakMinutes", policy.breakMinutes)
         put("toleranceMinutes", policy.toleranceMinutes)
-        put("minimumBreakAfterMinutes", policy.minimumBreakAfterMinutes)
+        put("unclosedDayPenaltyMinutes", policy.unclosedDayPenaltyMinutes)
         put("daySchedules", JSONObject().apply {
             policy.daySchedules.forEach { (day, schedule) ->
                 put(day, JSONObject().apply {
@@ -74,7 +76,6 @@ object SnapshotJson {
             val settings = policy.reminders
             put("enabled", settings.enabled)
             put("arrivalEnabled", settings.arrivalEnabled)
-            put("breakDueEnabled", settings.breakDueEnabled)
             put("breakEndEnabled", settings.breakEndEnabled)
             put("departureEnabled", settings.departureEnabled)
             put("followUpEnabled", settings.followUpEnabled)
