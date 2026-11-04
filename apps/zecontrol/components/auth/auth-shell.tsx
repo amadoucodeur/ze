@@ -1,18 +1,24 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { ArrowLeft, Clock3, ShieldCheck } from "lucide-react";
 import { ZeControlLogo, ZeSuiteLogo } from "@ze/ui-foundations/brands";
+import { isAndroidApp } from "@/lib/android-app";
 
 const portalUrl = process.env.NEXT_PUBLIC_PORTAL_URL ?? "http://localhost:3002";
 
-export function AuthShell({ children }: { children: React.ReactNode }) {
+export async function AuthShell({ children }: { children: React.ReactNode }) {
+  const inAndroidApp = isAndroidApp((await headers()).get("user-agent"));
+
   return (
     <main className="auth-page">
       <section className="auth-brand-panel">
         <div className="auth-brand-top">
           <ZeControlLogo inverse />
-          <Link href="/">
-            <ArrowLeft size={16} /> Retour au site
-          </Link>
+          {!inAndroidApp && (
+            <Link href="/">
+              <ArrowLeft size={16} /> Retour au site
+            </Link>
+          )}
         </div>
 
         <div className="auth-brand-copy">

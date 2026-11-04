@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAndroidApp } from "@/lib/android-app";
 import { getSupabaseConfig } from "./config";
 
 const protectedPaths = [
@@ -9,7 +10,6 @@ const protectedPaths = [
   "/nouveau-mot-de-passe",
 ];
 const guestOnlyPaths = ["/connexion", "/inscription"];
-const ANDROID_APP_MARKER = "ZeControlAndroid/";
 
 function copySessionState(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((cookie) => to.cookies.set(cookie));
@@ -63,7 +63,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   // The Android app opens on the product, never on the marketing page.
-  if (pathname === "/" && request.headers.get("user-agent")?.includes(ANDROID_APP_MARKER)) {
+  if (pathname === "/" && isAndroidApp(request.headers.get("user-agent"))) {
     return copySessionState(
       response,
       NextResponse.redirect(
