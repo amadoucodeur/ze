@@ -26,6 +26,7 @@ type Collaborator = {
   can_remote: boolean;
   poste: string | null;
   service: string | null;
+  monthly_net_salary: number | null;
 };
 
 const updateInitial: TeamFormState = {};
@@ -58,6 +59,7 @@ export function CollaboratorManagement({ collaborator, organisationIdentifier }:
             <label className="team-field"><span>Poste</span><div><input name="poste" defaultValue={collaborator.poste ?? ""} /></div></label>
             <label className="team-field"><span>Service</span><div><input name="service" defaultValue={collaborator.service ?? ""} /></div></label>
             <label className="team-field"><span>Rôle ZeControl</span><div><select name="role" defaultValue={collaborator.role}><option value="agent">Agent</option><option value="admin">Administrateur</option></select></div></label>
+            <label className="team-field"><span>Salaire mensuel net</span><div className="team-salary-input"><input name="monthlyNetSalary" inputMode="numeric" pattern="[0-9 ]*" maxLength={16} defaultValue={collaborator.monthly_net_salary ?? ""} placeholder="Ex. 200000" /><b>FCFA</b></div><small className="team-field-hint">Sert à calculer la déduction des retards d’arrivée. Visible uniquement par les gestionnaires.</small>{updateState.errors?.monthlyNetSalary?.map((error) => <small className="field-error" key={error}>{error}</small>)}</label>
             <input type="hidden" name="policy" value={collaborator.policy} />
             <label className="team-check"><input type="checkbox" name="canRemote" defaultChecked={collaborator.can_remote} /><span><strong>Pointage à distance autorisé</strong><small>Permet de pointer en dehors du site. La position reste enregistrée.</small></span></label>
           </div>

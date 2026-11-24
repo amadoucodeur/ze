@@ -31,6 +31,7 @@ import {
 import { AdminMissingEventPanel } from "@/components/clocking/admin-missing-event-panel";
 import { createClient } from "@/lib/supabase/client";
 import { isBalanceEligibleDay } from "@/lib/reports/balances";
+import { computeLateDeduction, fcfaLabel } from "@/lib/reports/late-deduction";
 import { LiveDayToolbar } from "./live-day-toolbar";
 import { ReportPeriodToolbar } from "./report-period-toolbar";
 import { exportCsv, exportExcel, exportExcelWorkbook, exportPdf, exportPdfSections, type ExportCell } from "@/lib/reports/export";
@@ -92,6 +93,10 @@ type ReportColumn =
   | "totalPause"
   | "late"
   | "totalLate"
+  | "totalArrivalLate"
+  | "monthlyNetSalary"
+  | "arrivalLateDeduction"
+  | "netAfterDeduction"
   | "totalBreakOverrun"
   | "totalOvertime"
   | "averageOvertime"
@@ -134,6 +139,10 @@ const columnOrder: ReportColumn[] = [
   "totalPause",
   "late",
   "totalLate",
+  "totalArrivalLate",
+  "monthlyNetSalary",
+  "arrivalLateDeduction",
+  "netAfterDeduction",
   "totalBreakOverrun",
   "totalOvertime",
   "averageOvertime",
@@ -162,6 +171,10 @@ const columnLabels: Record<ReportColumn, string> = {
   totalPause: "Temps de pause cumulé / attendu",
   late: "Retard",
   totalLate: "Retard cumulé",
+  totalArrivalLate: "Retard d’arrivée cumulé",
+  monthlyNetSalary: "Salaire mensuel net",
+  arrivalLateDeduction: "Déduction des retards d’arrivée",
+  netAfterDeduction: "Net après déduction",
   totalBreakOverrun: "Dépassement de pause cumulé",
   totalOvertime: "Temps supplémentaire cumulé",
   averageOvertime: "Temps supplémentaire moyen",
@@ -183,6 +196,10 @@ const reportDefaultColumns: ReportColumn[] = [
   "pauseDuration",
   "totalPause",
   "totalLate",
+  "totalArrivalLate",
+  "monthlyNetSalary",
+  "arrivalLateDeduction",
+  "netAfterDeduction",
   "totalOvertime",
   "averageOvertime",
   "absences",
@@ -346,6 +363,7 @@ export function OrganisationReports({
   const initialDates = useMemo(() => defaultPeriodDates(initialPeriod, new Date(), timeZone), [initialPeriod, timeZone]);
   const [events, setEvents] = useState<ReportEvent[]>([]);
   const [profiles, setProfiles] = useState<ReportProfile[]>([]);
+  const [salaries, setSalaries] = useState<Map<string, number>>(() => new Map());
   const [workPolicies, setWorkPolicies] = useState<ReportWorkPolicy[]>([]);
   const [workPolicyVersions, setWorkPolicyVersions] = useState<ReportWorkPolicyVersion[]>([]);
   const [workPolicyAssignments, setWorkPolicyAssignments] = useState<ReportWorkPolicyAssignment[]>([]);
@@ -399,6 +417,19 @@ export function OrganisationReports({
           (profile) => profile.role !== "owner",
         ),
       );
+    }
+
+    async function loadSalaries() {
+      const result = await supabase
+        .schema("zecontrol")
+        .from("profile_salaries")
+        .select("profile_id, monthly_net_salary")
+        .eq("organisation_id", organisationId);
+      if (!active || result.error) return;
+      setSalaries(new Map(
+        ((result.data ?? []) as { profile_id: string; monthly_net_salary: number | string }[])
+          .map((salary) => [salary.profile_id, Number(salary.monthly_net_salary)]),
+      ));
     }
 
     async function loadEvents() {
@@ -543,7 +574,7 @@ export function OrganisationReports({
       if (active && !result.error) setOvertimeApprovals((result.data ?? []) as OvertimeApproval[]);
     }
 
-    void Promise.all([loadProfiles(), loadEvents(), loadWorkPolicies(), loadOvertimeApprovals()]);
+    void Promise.all([loadProfiles(), loadSalaries(), loadEvents(), loadWorkPolicies(), loadOvertimeApprovals()]);
     return () => {
       active = false;
     };
@@ -802,9 +833,13 @@ export function OrganisationReports({
         const comparableDays = days.filter(
           (day) => day.worked > 0 || (day.evaluation?.expectedMinutes ?? 0) > 0,
         );
+        const totalArrivalLate = days.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0);
+        const monthlyNetSalary = salaries.get(profile.id) ?? null;
         return {
           profile,
           days,
+          monthlyNetSalary,
+          lateDeduction: computeLateDeduction(monthlyNetSalary, totalArrivalLate),
           workedDays: workedDays.length,
           expectedDays: expectedDays.length,
           totalWorked: days.reduce((total, day) => total + day.worked, 0),
@@ -814,7 +849,7 @@ export function OrganisationReports({
             0,
           ),
           totalLate: days.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0),
-          totalArrivalLate: days.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0),
+          totalArrivalLate,
           totalBreakOverrun: days.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0),
           totalPause: days.reduce((total, day) => total + day.pause, 0),
           totalPauseExpected: expectedDays.reduce(
@@ -870,7 +905,7 @@ export function OrganisationReports({
       })
       .filter((summary) => status === "all" || summary.days.length > 0)
       .sort((a, b) => a.profile.fullname.localeCompare(b.profile.fullname, "fr"));
-  }, [filteredDayRows, normalizedQuery, profiles, selectedProfileId, service, status, timeZone]);
+  }, [filteredDayRows, normalizedQuery, profiles, salaries, selectedProfileId, service, status, timeZone]);
 
   const reportTotalPages = Math.max(1, Math.ceil(collaboratorSummaries.length / PAGE_SIZE));
   const reportCurrentPage = Math.min(page, reportTotalPages);
@@ -939,9 +974,13 @@ export function OrganisationReports({
   const aggregateTotalPause = aggregateDays.reduce((total, day) => total + day.pause, 0);
   const aggregateTotalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.lateMinutes ?? 0), 0);
   const aggregateTotalArrivalLate = aggregateDays.reduce((total, day) => total + (day.evaluation?.arrivalLateMinutes ?? 0), 0);
+  const salariedSummaries = collaboratorSummaries.filter((summary) => summary.lateDeduction !== null);
+  const aggregateSalaryCount = salariedSummaries.length;
+  const aggregateMonthlyNetSalary = salariedSummaries.reduce((total, summary) => total + (summary.monthlyNetSalary ?? 0), 0);
+  const aggregateLateDeduction = salariedSummaries.reduce((total, summary) => total + (summary.lateDeduction?.deduction ?? 0), 0);
+  const aggregateNetAfterDeduction = salariedSummaries.reduce((total, summary) => total + (summary.lateDeduction?.netAfterDeduction ?? 0), 0);
   const aggregateTotalBreakOverrun = aggregateDays.reduce((total, day) => total + (day.evaluation?.breakOverrunMinutes ?? 0), 0);
   const aggregateTotalOvertime = aggregateDays.reduce((total, day) => total + (day.evaluation?.overtimeMinutes ?? 0), 0);
-  const aggregateBreaks = aggregateDays.reduce((total, day) => total + day.breaks, 0);
   const aggregateAbsences = aggregateDays.filter((day) => day.isPotentialAbsence).length;
   const aggregateExpectedDays = aggregateDays.filter(
     (day) => (day.evaluation?.expectedMinutes ?? 0) > 0,
@@ -1029,6 +1068,10 @@ export function OrganisationReports({
     if (column === "totalPause") return durationComparison(summary.totalPause, summary.totalPauseExpected);
     if (column === "late") return isSingleDay ? balanceLabel(day?.evaluation?.lateMinutes || null) : summary.averageLate === null ? "—" : durationLabel(summary.averageLate);
     if (column === "totalLate") return durationLabel(summary.totalLate);
+    if (column === "totalArrivalLate") return durationLabel(summary.totalArrivalLate);
+    if (column === "monthlyNetSalary") return summary.monthlyNetSalary === null ? "Non renseigné" : fcfaLabel(summary.monthlyNetSalary);
+    if (column === "arrivalLateDeduction") return summary.lateDeduction ? fcfaLabel(summary.lateDeduction.deduction) : "—";
+    if (column === "netAfterDeduction") return summary.lateDeduction ? fcfaLabel(summary.lateDeduction.netAfterDeduction) : "—";
     if (column === "totalBreakOverrun") return durationLabel(summary.totalBreakOverrun);
     if (column === "totalOvertime") return durationLabel(summary.totalOvertime);
     if (column === "averageOvertime") return summary.averageOvertime === null ? "—" : durationLabel(summary.averageOvertime);
@@ -1064,6 +1107,10 @@ export function OrganisationReports({
     if (column === "totalPause") return durationComparison(aggregateTotalPause, aggregateTotalPauseExpected);
     if (column === "late") return aggregateAverageLate === null ? "—" : durationLabel(aggregateAverageLate);
     if (column === "totalLate") return durationLabel(aggregateTotalLate);
+    if (column === "totalArrivalLate") return durationLabel(aggregateTotalArrivalLate);
+    if (column === "monthlyNetSalary") return aggregateSalaryCount ? fcfaLabel(aggregateMonthlyNetSalary) : "—";
+    if (column === "arrivalLateDeduction") return aggregateSalaryCount ? fcfaLabel(aggregateLateDeduction) : "—";
+    if (column === "netAfterDeduction") return aggregateSalaryCount ? fcfaLabel(aggregateNetAfterDeduction) : "—";
     if (column === "totalBreakOverrun") return durationLabel(aggregateTotalBreakOverrun);
     if (column === "totalOvertime") return durationLabel(aggregateTotalOvertime);
     if (column === "averageOvertime") return aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime);
@@ -1083,6 +1130,7 @@ export function OrganisationReports({
     if (column === "breakCount") return String(row.breaks);
     if (column === "pauseDuration") return durationLabel(row.pause);
     if (column === "late") return row.evaluation?.lateMinutes ? durationLabel(row.evaluation.lateMinutes) : "—";
+    if (column === "totalArrivalLate") return row.evaluation?.arrivalLateMinutes ? durationLabel(row.evaluation.arrivalLateMinutes) : "—";
     if (column === "totalRegulatoryBalance" || column === "averageRegulatoryBalance") {
       return balanceLabel(row.evaluation ? Math.min(row.evaluation.differenceMinutes, 0) : null);
     }
@@ -1234,24 +1282,7 @@ export function OrganisationReports({
         </section>
       ) : (
         <section className="report-summary-grid" aria-label="Synthèse des données filtrées">
-          <article className="primary"><span><Timer size={21} /></span><div><small>Temps global travaillé / attendu</small><strong>{durationLabel(aggregateTotalWorked)} <em>/ {durationLabel(aggregateTotalExpected)}</em></strong><p>{aggregateTotalWorked >= aggregateTotalExpected ? "+" : "−"}{durationLabel(Math.abs(aggregateTotalWorked - aggregateTotalExpected))} sur le temps attendu</p></div></article>
-          <article><span><Clock3 size={20} /></span><div><small>Moyenne globale / attendue</small><strong>{durationComparison(aggregateAverageGlobalWorked, aggregateAverageExpected)}</strong><p>{aggregateComparableDays.length} journée{aggregateComparableDays.length > 1 ? "s" : ""} comparée{aggregateComparableDays.length > 1 ? "s" : ""}</p></div></article>
-          <article><span><Timer size={20} /></span><div><small>Temps réglementaire / attendu</small><strong>{durationComparison(aggregateTotalRegularWorked, aggregateTotalExpected)}</strong><p>Hors temps réalisé au-delà de l’attendu</p></div></article>
-          <article><span><Clock3 size={20} /></span><div><small>Moyenne réglementaire / attendue</small><strong>{durationComparison(aggregateAverageRegularWorked, aggregateAverageExpected)}</strong><p>Moyenne plafonnée au temps réglementaire</p></div></article>
-          <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={20} /></span><div><small>Cumul des retards d’arrivée</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne par journée</p></div></article>
-          <article className={aggregateTotalBreakOverrun ? "attention" : ""}><span><Coffee size={20} /></span><div><small>Cumul des dépassements de pause</small><strong>{durationLabel(aggregateTotalBreakOverrun)}</strong><p>{aggregateAverageBreakOverrun === null ? "—" : durationLabel(aggregateAverageBreakOverrun)} en moyenne par journée</p></div></article>
-          <article><span><Coffee size={20} /></span><div><small>Pauses prises</small><strong>{aggregateBreaks}</strong><p>{aggregateAveragePause === null ? "Aucune pause mesurée" : `${durationLabel(aggregateAveragePause)} en moyenne`}</p></div></article>
-          <article className={aggregateAbsences ? "attention" : ""}><span><CalendarX2 size={20} /></span><div><small>Cumul des absences</small><strong>{aggregateAbsences}</strong><p>{aggregateAbsenceRate === null ? "—" : `${decimalLabel(aggregateAbsenceRate)} %`} en moyenne sur les journées attendues</p></div></article>
-          <article><span><CalendarDays size={20} /></span><div><small>Cumul du temps supplémentaire</small><strong>{durationLabel(aggregateTotalOvertime)}</strong><p>{aggregateAverageOvertime === null ? "—" : durationLabel(aggregateAverageOvertime)} en moyenne par journée</p></div></article>
-          <article><span><Clock3 size={20} /></span><div><small>Solde réglementaire cumulé</small><strong>{balanceLabel(aggregateTotalRegulatoryBalance)}</strong><p>{balanceLabel(aggregateAverageRegulatoryBalance)} en moyenne par journée clôturée</p></div></article>
-          <article><span><Timer size={20} /></span><div><small>Solde global cumulé</small><strong>{balanceLabel(aggregateTotalGlobalBalance)}</strong><p>{balanceLabel(aggregateAverageGlobalBalance)} en moyenne par journée clôturée</p></div></article>
-          <div className="report-average-strip">
-            <span><small>Début moyen</small><strong>{minuteOfDayLabel(aggregateAverageStart)}</strong></span>
-            <span><small>Pause moyenne</small><strong>{minuteOfDayLabel(aggregateAverageFirstBreak)}</strong></span>
-            <span><small>Reprise moyenne</small><strong>{minuteOfDayLabel(aggregateAverageFirstResume)}</strong></span>
-            <span><small>Fin moyenne</small><strong>{minuteOfDayLabel(aggregateAverageEnd)}</strong></span>
-            <p>Calculé sur {collaboratorSummaries.length} collaborateur{collaboratorSummaries.length > 1 ? "s" : ""} et {aggregateDays.length} journée{aggregateDays.length > 1 ? "s" : ""}.</p>
-          </div>
+          <article className={aggregateTotalArrivalLate ? "attention" : ""}><span><LogIn size={20} /></span><div><small>Cumul des retards d’arrivée</small><strong>{durationLabel(aggregateTotalArrivalLate)}</strong><p>{aggregateAverageArrivalLate === null ? "—" : durationLabel(aggregateAverageArrivalLate)} en moyenne par journée</p>{aggregateSalaryCount > 0 && <p>{fcfaLabel(aggregateLateDeduction)} à déduire · {aggregateSalaryCount} salaire{aggregateSalaryCount > 1 ? "s" : ""} renseigné{aggregateSalaryCount > 1 ? "s" : ""}</p>}</div></article>
         </section>
       )}
 

@@ -142,6 +142,7 @@ export function CollaboratorForm({
         <div className="team-panel-heading"><UserRound size={20} /><div><h2>Configuration ZeControl</h2><p>Ces droits restent propres à ZeControl.</p></div></div>
         <div className="team-form-grid">
           <label className="team-field"><span>Rôle</span><div><select name="role" defaultValue="agent"><option value="agent">Agent</option><option value="admin">Administrateur</option></select></div></label>
+          <label className="team-field"><span>Salaire mensuel net</span><div className="team-salary-input"><input name="monthlyNetSalary" inputMode="numeric" pattern="[0-9 ]*" maxLength={16} placeholder="Ex. 200000" /><b>FCFA</b></div><small className="team-field-hint">Sert à calculer la déduction des retards d’arrivée. Visible uniquement par les gestionnaires.</small>{state.errors?.monthlyNetSalary?.map((error) => <small className="field-error" key={error}>{error}</small>)}</label>
           <input type="hidden" name="policy" value="strict" />
           <label className="team-check"><input type="checkbox" name="canRemote" /><span><strong>Autoriser le pointage à distance</strong><small>Permet de pointer en dehors du site. La position reste enregistrée.</small></span></label>
         </div>

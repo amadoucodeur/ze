@@ -70,8 +70,21 @@ const passwordChoiceSchema = z
     }
   });
 
-const collaboratorSchema = identitySchema.and(productConfigSchema).and(passwordChoiceSchema);
-const updateSchema = identitySchema.and(productConfigSchema);
+const salarySchema = z.object({
+  monthlyNetSalary: z
+    .string()
+    .transform((value) => value.replace(/[\s\u00a0\u202f.]/g, ""))
+    .refine((value) => value === "" || /^\d{1,12}$/.test(value), {
+      message: "Saisissez un montant en francs CFA, sans décimales.",
+    })
+    .transform((value) => (value === "" ? null : Number(value))),
+});
+
+const collaboratorSchema = identitySchema
+  .and(productConfigSchema)
+  .and(salarySchema)
+  .and(passwordChoiceSchema);
+const updateSchema = identitySchema.and(productConfigSchema).and(salarySchema);
 
 function generatedPassword() {
   return `Zc9!${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
@@ -114,7 +127,28 @@ function productInput(formData: FormData) {
     canRemote: formData.get("canRemote") === "on",
     poste: formData.get("poste"),
     service: formData.get("service"),
+    monthlyNetSalary: formData.get("monthlyNetSalary") ?? "",
   };
+}
+
+async function saveMonthlyNetSalary(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  organisationId: string,
+  updatedBy: string,
+  monthlyNetSalary: number | null,
+) {
+  const salaries = admin.schema("zecontrol").from("profile_salaries");
+  if (monthlyNetSalary === null) {
+    return salaries.delete().eq("profile_id", profileId).eq("organisation_id", organisationId);
+  }
+  return salaries.upsert({
+    profile_id: profileId,
+    organisation_id: organisationId,
+    monthly_net_salary: monthlyNetSalary,
+    updated_by: updatedBy,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "profile_id" });
 }
 
 async function managerContext() {
@@ -305,6 +339,18 @@ export async function createCollaboratorAction(
     return { message: creationErrorMessage(reference) };
   }
 
+  const { error: salaryError } = await saveMonthlyNetSalary(
+    admin,
+    createdUser.user.id,
+    manager.organisation.id,
+    manager.profile.id,
+    parsed.data.monthlyNetSalary,
+  );
+  if (salaryError) {
+    // Le compte est utilisable : le salaire pourra être saisi depuis sa fiche.
+    logCreationFailure(reference, "monthly-net-salary", salaryError);
+  }
+
   revalidatePath("/dashboard/equipe");
   return {
     success: "Le collaborateur a été créé.",
@@ -437,6 +483,18 @@ export async function updateCollaboratorAction(
       });
     }
     return { message: "La configuration ZeControl n’a pas été enregistrée." };
+  }
+
+  const { error: salaryError } = await saveMonthlyNetSalary(
+    admin,
+    target.id,
+    manager.organisation.id,
+    manager.profile.id,
+    parsed.data.monthlyNetSalary,
+  );
+  if (salaryError) {
+    console.error("ZeControl monthly net salary update failed", { code: salaryError.code, message: salaryError.message });
+    return { message: "Les informations sont enregistrées, mais le salaire mensuel net n’a pas pu l’être. Réessayez." };
   }
 
   revalidatePath("/dashboard/equipe");

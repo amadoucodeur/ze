@@ -1025,6 +1025,8 @@ button:disabled { cursor: wait; opacity: .68; }
 .team-field select { color-scheme: dark; }
 .team-field input::placeholder { color: #71878e; }
 .team-identifier b { flex: 0 0 auto; color: #9bb0b6; font-size: 11px; }
+.team-salary-input b { flex: 0 0 auto; color: #9bb0b6; font-size: 11px; }
+.team-field-hint { color: #80969c; font-size: 11px; font-weight: 500; line-height: 1.4; }
 .team-check { display: flex; grid-column: 1 / -1; align-items: center; gap: 11px; padding: 14px; border-radius: 12px; color: #d6e2e4; background: rgba(255,255,255,.04); }
 .team-check input { width: 17px; height: 17px; accent-color: var(--teal); }
 .team-check span { display: flex; flex-direction: column; gap: 3px; }
@@ -1251,6 +1253,8 @@ a.dashboard-workspace:hover { background: rgba(255,255,255,.09); border-color: r
 .dashboard-page .team-field input, .dashboard-page .team-field select { color: var(--ink); color-scheme: light; }
 .dashboard-page .team-field input::placeholder { color: #9aa6a9; }
 .dashboard-page .team-identifier b { color: #426169; }
+.dashboard-page .team-salary-input b { color: #426169; }
+.dashboard-page .team-field-hint { color: #7b8a8e; }
 .dashboard-page .team-check { color: #41545a; background: #f5f9f8; border: 1px solid #e0e9e7; }
 .dashboard-page .team-check small { color: #819095; }
 .dashboard-page .team-password-modes label { color: #66777c; background: #f8faf9; border-color: #e0e7e5; }
